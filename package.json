@@ -1,0 +1,61 @@
+{
+  "name": "@fkws/klonk",
+  "version": "0.0.4",
+  "description": "A lightweight, extensible workflow automation engine for Node.js and Bun",
+  "bin": {
+    "klonk": "./dist/cli.js"
+  },
+  "module": "dist/index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "start": "bun index.ts",
+    "build": "bunx rimraf dist && bunup",
+    "prepublishOnly": "bun run build",
+    "release": "bun scripts/release.js",
+    "release:patch": "bun scripts/release.js patch",
+    "release:minor": "bun scripts/release.js minor",
+    "release:major": "bun scripts/release.js major"
+  },
+  "keywords": [
+    "workflow",
+    "automation",
+    "zapier",
+    "notion",
+    "openai"
+  ],
+  "author": "FKWS (https://klonk.dev)",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/express": "^5.0.1",
+    "@types/node": "latest",
+    "bunup": "^0.6.2",
+    "tavily": "^1.0.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "cli-highlight": "^2.1.11",
+    "commander": "^13.1.0",
+    "express": "^5.1.0",
+    "json-to-zod": "^1.1.2",
+    "pino": "^10.1.0"
+  }
+}

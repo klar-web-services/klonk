@@ -1,0 +1,20 @@
+Klonk (@fkws/klonk)
+Copyright (c) 2025 FKWS (Klar Web Services)
+
+Licensed under the Mozilla Public License 2.0 (MPL-2.0).
+You can obtain a copy at https://www.mozilla.org/MPL/2.0/
+
+Homepage: https://klonk.dev
+Source (for MPL-covered files and modifications): https://github.com/klar-web-services/klonk
+
+Attribution Notice
+------------------
+If you redistribute software that includes this package, please preserve this NOTICE
+and include the following attribution in your documentation or “Licenses/Credits” view:
+
+  "Klonk by FKWS — MPL-2.0 — https://klonk.dev"
+
+Third-Party Notices
+-------------------
+(This project may include third-party components under their own licenses.
+List them here or in a LICENSES/ directory if applicable.)
