@@ -2,9 +2,6 @@
   "name": "@fkws/klonk",
   "version": "0.0.5",
   "description": "A lightweight, extensible workflow automation engine for Node.js and Bun",
-  "bin": {
-    "klonk": "./dist/cli.js"
-  },
   "module": "dist/index.js",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -43,19 +40,13 @@
   "author": "FKWS (https://klonk.dev)",
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/express": "^5.0.1",
     "@types/node": "latest",
-    "bunup": "^0.6.2",
-    "tavily": "^1.0.2"
+    "bunup": "^0.6.2"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "cli-highlight": "^2.1.11",
-    "commander": "^13.1.0",
-    "express": "^5.1.0",
-    "json-to-zod": "^1.1.2",
     "pino": "^10.1.0"
   }
 }
