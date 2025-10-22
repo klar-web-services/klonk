@@ -1,6 +1,6 @@
 {
   "name": "@fkws/klonk",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "A lightweight, extensible workflow automation engine for Node.js and Bun",
   "bin": {
     "klonk": "./dist/cli.js"
