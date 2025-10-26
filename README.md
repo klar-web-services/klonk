@@ -9,12 +9,11 @@
 
 ![License](https://img.shields.io/github/license/klar-web-services/klonk)
 
----
-
 *A code-first, type-safe automation engine for TypeScript.*
 
----
 ![Code](./.github/assets/blurry.png)
+![Skip to code examples ->](https://github.com/klar-web-services/klonk?tab=readme-ov-file#code-examples)
+
 ---
 
 ## Introduction
