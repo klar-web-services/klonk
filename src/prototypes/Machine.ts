@@ -2,11 +2,23 @@ import pino, { type Logger } from "pino";
 import { Playlist } from "./Playlist";
 import { randomUUID } from "crypto";
 
+/**
+ * @internal Shared pino logger used when verbose output is enabled.
+ */
 let glogger: Logger | null = null
 
+/**
+ * A weighted, conditional edge to a target state.
+ * Transitions are evaluated in descending `weight` order, then by insertion order.
+ *
+ * @template TStateData - Mutable state shared across the machine.
+ */
 type Transition<TStateData> = {
+    /** Target state node, resolved during `finalize`. */
     to: StateNode<TStateData> | null;
+    /** Async predicate that decides whether to take this transition. */
     condition: (stateData: TStateData) => Promise<boolean>;
+    /** Higher values are tried first; defaults to 0. */
     weight?: number;
 }
   
