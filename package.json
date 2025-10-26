@@ -1,6 +1,6 @@
 {
   "name": "@fkws/klonk",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "A lightweight, extensible workflow automation engine for Node.js and Bun",
   "module": "dist/index.js",
   "main": "dist/index.js",
