@@ -1,4 +1,7 @@
-# Klonk
+![Klonk](./.github/assets/logo-full.png)
+
+---
+
 ![npm version](https://img.shields.io/npm/v/@fkws/klonk)
 ![npm downloads](https://img.shields.io/npm/dm/@fkws/klonk)
 [![codecov](https://codecov.io/gh/klar-web-services/klonk/branch/main/graph/badge.svg?token=2R145SOCWH)](https://codecov.io/gh/klar-web-services/klonk)
