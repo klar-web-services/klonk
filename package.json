@@ -25,6 +25,9 @@
     "start": "bun index.ts",
     "build": "bunx rimraf dist && bunup",
     "prepublishOnly": "bun run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "release": "bun scripts/release.js",
     "release:patch": "bun scripts/release.js patch",
     "release:minor": "bun scripts/release.js minor",
@@ -41,7 +44,9 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "latest",
-    "bunup": "^0.6.2"
+    "@vitest/coverage-v8": "^4.0.3",
+    "bunup": "^0.6.2",
+    "vitest": "^4.0.3"
   },
   "peerDependencies": {
     "typescript": "^5"

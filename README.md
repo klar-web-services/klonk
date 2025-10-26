@@ -1,4 +1,13 @@
 # Klonk
+![npm version](https://img.shields.io/npm/v/@fkws/klonk)
+![npm downloads](https://img.shields.io/npm/dm/@fkws/klonk)
+
+---
+
+![License](https://img.shields.io/github/license/klar-web-services/klonk)
+
+---
+
 *A code-first, type-safe automation engine for TypeScript.*
 
 ## Introduction

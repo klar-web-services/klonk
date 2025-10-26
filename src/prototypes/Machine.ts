@@ -474,27 +474,24 @@ export class Machine<TStateData> {
                     }
                     retries++;
                 }
-                if (!next) {
-                    logger?.info({ phase: 'end' }, 'No next state after retries, run complete.')
-                    return stateData;
-                }
             }
 
-            if (next === this.initialState) {
+            const resolvedNext = next!;
+
+            if (resolvedNext === this.initialState) {
                 logger?.info({ phase: 'end' }, 'Next state is initial state, run complete.')
                 return stateData;
             }
 
-            logger?.info({ phase: 'progress', from: current.ident, to: next.ident }, 'Transitioning state.')
-            current = next;
+            logger?.info({ phase: 'progress', from: current.ident, to: resolvedNext.ident }, 'Transitioning state.')
+            current = resolvedNext;
             await current.playlist.run(stateData);
-            if (current.ident) visitedIdents.add(current.ident);
+            visitedIdents.add(current.ident);
 
             if (visitedIdents.size >= allStates.length) {
                 logger?.info({ phase: 'end' }, 'All reachable states visited, run complete.')
                 return stateData;
             }
         }
-        return stateData;
     }
 }
