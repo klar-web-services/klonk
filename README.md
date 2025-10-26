@@ -11,13 +11,11 @@
 
 *A code-first, type-safe automation engine for TypeScript.*
 
-![Code](./.github/assets/blurry.png)
-![Skip to code examples ->](https://github.com/klar-web-services/klonk?tab=readme-ov-file#code-examples)
-
----
-
 ## Introduction
 Klonk is a code-first, type-safe automation engine designed with developer experience as a top priority. It provides powerful, composable primitives to build complex workflows and state machines with world-class autocomplete and type inference. If you've ever wanted to build event-driven automations or a stateful agent, but in code, with all the benefits of TypeScript, Klonk is for you.
+
+![Code](./.github/assets/blurry.png)
+![Skip to code examples ->](https://github.com/klar-web-services/klonk?tab=readme-ov-file#code-examples)
 
 The two main features are **Workflows** and **Machines**.
 
