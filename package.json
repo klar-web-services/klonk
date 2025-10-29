@@ -3,6 +3,7 @@
   "version": "0.0.10",
   "description": "A lightweight, extensible workflow automation engine for Node.js and Bun",
   "repository": "https://github.com/klar-web-services/klonk",
+  "homepage": "https://klonk.dev",
   "module": "dist/index.js",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
