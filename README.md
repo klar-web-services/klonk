@@ -1,4 +1,4 @@
-![Klonk](./.github/assets/logo-full.png)
+![Klonk](./.github/assets/KLONK_white.png)
 
 ---
 
