@@ -1,4 +1,10 @@
-![Klonk](./.github/assets/KLONK_white.png)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./.github/assets/KLONK_white.png">
+    <source media="(prefers-color-scheme: light)" srcset="./.github/assets/KLONK_black.png">
+    <img alt="Klonk Logo" src="./.github/assets/KLONK_black.png">
+  </picture>
+</p>
 
 ---
 
