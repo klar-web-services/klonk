@@ -3,7 +3,7 @@ export { Workflow } from './prototypes/Workflow';
 export { Playlist } from './prototypes/Playlist';
 export { Task, type Railroad } from './prototypes/Task';
 export { Trigger, type TriggerEvent } from './prototypes/Trigger';
-export { Machine, StateNode } from './prototypes/Machine';
+export { Machine, StateNode, type RunOptions } from './prototypes/Machine';
 
 
 // These will no longer be part of Klonk

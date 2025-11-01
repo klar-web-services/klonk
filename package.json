@@ -48,12 +48,13 @@
     "@types/node": "latest",
     "@vitest/coverage-v8": "^4.0.3",
     "bunup": "^0.6.2",
-    "vitest": "^4.0.3"
+    "vitest": "^4.0.3",
+    "pino": "^10.1.0"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "pino": "^10.1.0"
+    
   }
 }

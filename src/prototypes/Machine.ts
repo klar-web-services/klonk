@@ -1,11 +1,15 @@
-import pino, { type Logger } from "pino";
-import { Playlist } from "./Playlist";
 import { randomUUID } from "crypto";
+import { Playlist } from "./Playlist";
 
-/**
- * @internal Shared pino logger used when verbose output is enabled.
- */
-let glogger: Logger | null = null
+export type Logger = {
+    info: (...args: any[]) => void;
+    error: (...args: any[]) => void;
+    debug: (...args: any[]) => void;
+    fatal: (...args: any[]) => void;
+    warn: (...args: any[]) => void;
+    trace: (...args: any[]) => void;
+    child?: (bindings: Record<string, unknown>) => Logger;
+}
 
 /**
  * A weighted, conditional edge to a target state.
@@ -32,11 +36,11 @@ type Transition<TStateData> = {
 export class StateNode<TStateData> {
     transitions?: Transition<TStateData>[];
     playlist: Playlist<any, TStateData>;
-    timeToNextTick: number;
     ident: string;
     tempTransitions?: {to: string, condition: (stateData: TStateData) => Promise<boolean>, weight: number}[];
     retry: false | number;
     maxRetries: false | number;
+    logger?: Logger;
 
     /**
      * Create a `StateNode`.
@@ -47,7 +51,6 @@ export class StateNode<TStateData> {
     constructor(transitions: Transition<TStateData>[], playlist: Playlist<any, TStateData>) {
         this.transitions = transitions;
         this.playlist = playlist;
-        this.timeToNextTick = 1000;
         this.ident = "";
         this.retry = 1000;
         this.maxRetries = false;
@@ -185,7 +188,7 @@ export class StateNode<TStateData> {
      * @returns The next node if a condition passes; otherwise `null`.
      */
     async next(data: TStateData): Promise<StateNode<TStateData> | null> {
-        const logger = glogger?.child({ path: "StateNode.next", state: this.ident })
+        const logger = (this.logger?.child?.({ path: "StateNode.next", state: this.ident }) ?? this.logger)
         logger?.info({ phase: 'start' }, "Evaluating next state")
         const sorted = [...(this.transitions || [])]
             .map((t, i) => ({ t, i }))
@@ -219,6 +222,8 @@ export class Machine<TStateData> {
     finalized: boolean = false;
     logger?: Logger
     ident?: string
+    private started: boolean = false
+    private tickTimer: any | null = null;
     
     /**
      * Compute the set of reachable states starting from the initial state.
@@ -227,7 +232,7 @@ export class Machine<TStateData> {
      * @returns An array of reachable `StateNode`s.
      */
     private getAllStates(): StateNode<TStateData>[] {
-        const logger = glogger?.child({ path: "machine.getAllStates" })
+        const logger = (this.logger?.child?.({ path: "machine.getAllStates" }) ?? this.logger)
         logger?.info({ phase: "start"}, "Gathering all states...")
         if (!this.initialState) return [];
         const visited = new Set<string>();
@@ -280,13 +285,11 @@ export class Machine<TStateData> {
      * @throws If there is no initial state, no states have been added, a state is missing an ident, or idents are duplicated.
      */
     public finalize({
-        verbose,
         ident,
     }: {
-        verbose?: boolean,
         ident?: string,
     } = {}): Machine<TStateData> {
-        const logger = glogger?.child({ path: "machine.finalize", instance: this.ident })
+        const logger = (this.logger?.child?.({ path: "machine.finalize", instance: this.ident }) ?? this.logger)
 
         if (!this.initialState || this.statesToCreate.length === 0) {
             logger?.error({ phase: 'error' }, "Finalization failed: no initial state or states to create")
@@ -299,14 +302,13 @@ export class Machine<TStateData> {
             this.ident = randomUUID()
         }
 
-        if (verbose) glogger = pino();
-        logger?.info("Logging enabled.")
-
         logger?.info({ phase: "start"}, `Finalizing machine ${this.ident}...`)
 
         const registry = new Map<string, StateNode<TStateData>>();
         logger?.info({ phase: "progress"}, `Building state registry...`)
         for (const s of this.statesToCreate) {
+            // Propagate logger to states for internal logging
+            s.logger = this.logger;
             if (!s.ident) {
                 logger?.error({ phase: 'error' }, "Finalization failed: state missing ident")
                 throw new Error("State missing ident.");
@@ -350,7 +352,7 @@ export class Machine<TStateData> {
      * @returns This machine for chaining.
      */
     public addState(state: StateNode<TStateData>, options: { initial?: boolean } = {}): Machine<TStateData> {
-        const logger = glogger?.child({ path: "machine.addState", instance: this.ident })
+        const logger = (this.logger?.child?.({ path: "machine.addState", instance: this.ident }) ?? this.logger)
         logger?.info({ phase: 'start', state: state.ident, isInitial: !!options.initial }, 'Adding state')
         this.statesToCreate.push(state);
         if (options.initial) {
@@ -361,55 +363,27 @@ export class Machine<TStateData> {
     }
 
     /**
-     * Start the machine in a repeated tick loop. Executes the current state's playlist,
-     * evaluates transitions, and schedules the next tick with `setTimeout`.
-     * The method returns immediately after initializing the loop.
-     *
-     * @param stateData - Mutable external state provided to playlists and transition conditions.
-     * @param options - Start options.
-     * @param options.interval - Tick interval in milliseconds (default 1000ms).
-     * @returns A promise that resolves once the loop has been initiated.
-     * @throws If the machine has not been finalized or no initial state is set.
+     * Attach a logger to this machine. If the machine has an initial state set,
+     * the logger will be propagated to all currently reachable states.
      */
-    public async start(stateData: TStateData, options?: { interval?: number }): Promise<void> {
-        const logger = glogger?.child({ path: "machine.start", instance: this.ident })
-        logger?.info({ phase: 'start' }, 'Starting machine...')
-        if (!this.finalized) {
-            logger?.error({ phase: 'error' }, 'Machine not finalized')
-            throw new Error("Cannot start a machine that is not finalized.");
-        }
-        if (!this.initialState) {
-            logger?.error({ phase: 'error' }, 'No initial state')
-            throw new Error("Cannot start a machine without an initial state.");
-        }
-
-        const interval = options?.interval ?? 1000;
-        logger?.info({ phase: 'progress', interval }, 'Machine interval set')
-
-        if (!this.currentState) {
-            this.currentState = this.initialState;
-            logger?.info({ phase: 'progress', state: this.currentState.ident }, 'Set initial state. Running playlist.')
-            await this.currentState.playlist.run(stateData);
-            logger?.info({ phase: 'progress', state: this.currentState.ident }, 'Initial playlist run complete.')
-        }
-
-        const tick = async () => {
-            const tickLogger = logger?.child({ path: 'machine.tick' })
-            tickLogger?.info({ phase: 'start', state: this.currentState!.ident }, 'Tick.')
-            const next = await this.currentState!.next(stateData);
-            if (next) {
-                tickLogger?.info({ phase: 'progress', from: this.currentState!.ident, to: next.ident }, 'Transitioning state.')
-                this.currentState = next;
-                await this.currentState.playlist.run(stateData);
-                tickLogger?.info({ phase: 'progress', state: this.currentState.ident }, 'Playlist run complete.')
-            } else {
-                tickLogger?.info({ phase: 'progress', state: this.currentState!.ident }, 'No next state.')
+    public addLogger(logger: Logger): Machine<TStateData> {
+        this.logger = logger;
+        if (this.initialState) {
+            const visited = new Set<string>();
+            const stack: StateNode<TStateData>[] = [this.initialState];
+            while (stack.length > 0) {
+                const node = stack.pop()!;
+                if (!node.ident || visited.has(node.ident)) continue;
+                visited.add(node.ident);
+                node.logger = logger;
+                for (const tr of node.transitions || []) {
+                    if (tr.to && tr.to.ident && !visited.has(tr.to.ident)) {
+                        stack.push(tr.to);
+                    }
+                }
             }
-            setTimeout(tick, interval);
-        };
-
-        tick();
-        logger?.info({ phase: 'end' }, 'Machine started, tick loop initiated.')
+        }
+        return this;
     }
 
     /**
@@ -424,9 +398,10 @@ export class Machine<TStateData> {
      * @returns A promise that resolves once the run completes.
      * @throws If the machine has not been finalized or no initial state is set.
      */
-    public async run(stateData: TStateData): Promise<TStateData> {
-        const logger = glogger?.child({ path: "machine.run", instance: this.ident })
-        logger?.info({ phase: 'start' }, 'Running machine...')
+    public async run(stateData: TStateData, options: RunOptions): Promise<TStateData> {
+        const logger = (this.logger?.child?.({ path: "machine.run", instance: this.ident }) ?? this.logger)
+        logger?.info({ phase: 'start', options }, 'Running machine...')
+
         if (!this.finalized) {
             logger?.error({ phase: 'error' }, 'Machine not finalized')
             throw new Error("Cannot run a machine that is not finalized.");
@@ -438,31 +413,50 @@ export class Machine<TStateData> {
 
         const allStates = this.getAllStates();
         const visitedIdents = new Set<string>();
+        let transitionsCount = 0;
+
+        // If stopAfter is explicitly 0, do not even enter the initial state
+        if (options.stopAfter !== undefined && options.stopAfter === 0) {
+            logger?.info({ phase: 'end', reason: 'stopAfter', count: transitionsCount }, 'Stop condition met.')
+            return stateData;
+        }
 
         let current = this.initialState;
         logger?.info({ phase: 'progress', state: current.ident }, 'Set initial state. Running playlist.')
         await current.playlist.run(stateData);
+        transitionsCount = 1;
         visitedIdents.add(current.ident);
 
+        // Check stopAfter after entering the initial state
+        if (options.stopAfter !== undefined && transitionsCount >= options.stopAfter) {
+            logger?.info({ phase: 'end', reason: 'stopAfter', count: transitionsCount }, 'Stop condition met.')
+            return stateData;
+        }
+
         while (true) {
-            if (!current.transitions || current.transitions.length === 0) {
-                logger?.info({ phase: 'end', state: current.ident }, 'Reached leaf node, run complete.')
-                return stateData;
+
+            if ((!current.transitions || current.transitions.length === 0)) {
+                // This is a terminal condition for all modes except 'infinitely'.
+                // In 'infinitely' mode, it will just keep retrying.
+                if (options.mode !== 'infinitely') {
+                    logger?.info({ phase: 'end', state: current.ident, reason: 'leaf' }, 'Stop condition met.')
+                    return stateData;
+                }
             }
 
             let next = await current.next(stateData);
             if (!next) {
                 const retryDelay = current.retry;
-                if (!retryDelay) {
-                    logger?.info({ phase: 'end', state: current.ident }, 'No next state and retries disabled, run complete.')
+                if (retryDelay === false) {
+                    logger?.info({ phase: 'end', state: current.ident, reason: 'no-transition-no-retry' }, 'Stop condition met.')
                     return stateData;
                 }
 
                 let retries = 0;
                 logger?.info({ phase: 'progress', state: current.ident, retryDelay }, 'No next state, beginning retry logic.')
                 while (!next) {
-                    if (current.maxRetries && retries >= current.maxRetries) {
-                        logger?.warn({ phase: 'end', state: current.ident, retries }, 'Retry limit exhausted, run complete.')
+                    if (current.maxRetries !== false && retries >= current.maxRetries) {
+                        logger?.warn({ phase: 'end', state: current.ident, retries, reason: 'retries-exhausted' }, 'Stop condition met.')
                         return stateData;
                     }
                     await this.sleep(retryDelay as number);
@@ -476,22 +470,47 @@ export class Machine<TStateData> {
                 }
             }
 
+            // This should not be null here due to the retry logic returning on failure.
             const resolvedNext = next!;
 
             if (resolvedNext === this.initialState) {
-                logger?.info({ phase: 'end' }, 'Next state is initial state, run complete.')
-                return stateData;
+                if (options.mode !== 'infinitely') {
+                    logger?.info({ phase: 'end', reason: 'roundtrip' }, 'Stop condition met.')
+                    return stateData;
+                }
             }
 
             logger?.info({ phase: 'progress', from: current.ident, to: resolvedNext.ident }, 'Transitioning state.')
             current = resolvedNext;
             await current.playlist.run(stateData);
             visitedIdents.add(current.ident);
+            transitionsCount++;
+
+            // Check stopAfter immediately after entering a state
+            if (options.stopAfter !== undefined && transitionsCount >= options.stopAfter) {
+                logger?.info({ phase: 'end', reason: 'stopAfter', count: transitionsCount }, 'Stop condition met.')
+                return stateData;
+            }
 
             if (visitedIdents.size >= allStates.length) {
-                logger?.info({ phase: 'end' }, 'All reachable states visited, run complete.')
-                return stateData;
+                if (options.mode === 'any') {
+                    logger?.info({ phase: 'end', reason: 'all-visited' }, 'Stop condition met.')
+                    return stateData;
+                }
+            }
+
+            if (options.mode === 'infinitely') {
+                await this.sleep(options.interval ?? 1000);
             }
         }
     }
 }
+
+export type RunOptions = {
+    stopAfter?: number;
+} & (
+    | { mode: "any" }
+    | { mode: "leaf" }
+    | { mode: "roundtrip" }
+    | { mode: "infinitely"; interval?: number }
+ );

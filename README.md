@@ -64,11 +64,21 @@ A `Machine` is a finite state machine. It's made up of `StateNode`s. Each `State
 
 The `Machine` carries a mutable `stateData` object that can be read from and written to by playlists and transition conditions throughout its execution.
 
+#### Machine run modes
+- **any**: Runs until the first terminal condition occurs (leaf state, roundtrip to the initial state, or all reachable states visited).
+- **leaf**: Runs until a leaf state (no transitions) is reached.
+- **roundtrip**: Runs until it transitions back to the initial state.
+- **infinitely**: Continues running indefinitely, sleeping between iterations (`interval` ms, default 1000). Use `stopAfter` to cap total states entered.
+
+Notes:
+- `stopAfter` counts states entered, including the initial state. For example, `stopAfter: 1` will run the initial state's playlist once and then stop; `stopAfter: 0` stops before entering the initial state.
+- Retries are independent of `stopAfter`. A state can retry its transition condition (with optional delay) without affecting the `stopAfter` count until a state transition actually occurs.
+
 ## Features
 - **Type-Safe & Autocompleted**: Klonk leverages TypeScript's inference to provide a world-class developer experience. The inputs and outputs of every step are strongly typed, so you'll know at compile time if your logic is sound.
 - **Code-First**: Define your automations directly in TypeScript. No YAML, no drag-and-drop UIs. Just the full power of a real programming language.
 - **Composable & Extensible**: The core primitives (`Task`, `Trigger`) are simple abstract classes, making it easy to create your own reusable components and integrations.
-- **Flexible Execution**: `Machines` can be run synchronously to completion (`run`) for request/response style work, or started as a long-running background process (`start`).
+- **Flexible Execution**: `Machines` run with configurable modes via `run(state, options)`: `any`, `leaf`, `roundtrip`, or `infinitely` (with optional `interval`).
 
 ## Klonkworks: Pre-built Components
 Coming soon(ish)! Klonkworks will be a large collection of pre-built Tasks, Triggers, and integrations. This will allow you to quickly assemble powerful automations that connect to a wide variety of services, often without needing to build your own components from scratch.
@@ -445,8 +455,9 @@ const webSearchAgent = Machine
                 }
             })
     ))
-    .finalize({ // Finalize your machine to make it ready to run. Verbose machines emit JSON logs. If you don't provide an ident, a uuidv4 will be generated for it.
-        verbose: true,
+    .addLogger(pino()) // If you add a logger to your machine,
+                       // it will call its info(), error(), debug(), fatal(), warn(), and trace() methods. Pino is recommended.
+    .finalize({ // Finalize your machine to make it ready to run. If you don't provide an ident, a uuidv4 will be generated for it.
         ident: "web-search-agent"
     })
 
@@ -457,10 +468,10 @@ const state: StateData = { // The state object is mutable and is passed to the m
     model: "openai/gpt-4o-mini"
 }
 
-// The .run() method executes the machine until it reaches a terminal state
-// (leaf, failed, out of retries, looped back to initial state)
-// and returns the final state. The original state object is also mutated.
-const finalState = await webSearchAgent.run(state)
+// The .run() method executes the machine until it reaches a terminal condition
+// based on the selected mode. For example, 'roundtrip' stops when it returns
+// to the initial state. The original state object is also mutated.
+const finalState = await webSearchAgent.run(state, { mode: 'roundtrip' })
 
 console.log(finalState.finalResponse) // The final state is returned.
 // Or simply:
