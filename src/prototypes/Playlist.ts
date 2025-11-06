@@ -12,7 +12,7 @@ type InputBuilder<SourceType, AllOutputTypes, TaskInputType> = (source: SourceTy
 /**
  * @internal Internal assembly type that couples a task with its input builder.
  */
-interface Machine<SourceType, AllOutputTypes, TaskInputType, TaskOutputType, IdentType extends string> {
+interface TaskBundle<SourceType, AllOutputTypes, TaskInputType, TaskOutputType, IdentType extends string> {
 	task: Task<TaskInputType, TaskOutputType, IdentType>
 	builder: InputBuilder<SourceType, AllOutputTypes, TaskInputType>
 }
@@ -48,15 +48,15 @@ export class Playlist<
     /**
      * Internal list of task + builder pairs in the order they will run.
      */
-    machines: Machine<any, any, any, any, string>[]
+    bundles: TaskBundle<any, any, any, any, string>[]
 
     /**
      * Optional finalizer invoked after all tasks complete (successfully or not).
      */
     finalizer?: (source: SourceType, outputs: Record<string, any>) => void | Promise<void>
 
-    constructor(machines: Machine<any, any, any, any, string>[] = [], finalizer?: (source: SourceType, outputs: Record<string, any>) => void | Promise<void>) {
-        this.machines = machines;
+    constructor(bundles: TaskBundle<any, any, any, any, string>[] = [], finalizer?: (source: SourceType, outputs: Record<string, any>) => void | Promise<void>) {
+        this.bundles = bundles;
         this.finalizer = finalizer;
     }
 
@@ -82,9 +82,9 @@ export class Playlist<
 		task: Task<TaskInputType, TaskOutputType, IdentType> & { ident: IdentType },
 		builder: (source: SourceType, outputs: AllOutputTypes) => NoInfer<TaskInputType>
     ): Playlist<AllOutputTypes & { [K in IdentType]: Railroad<TaskOutputType> }, SourceType> {
-        const machine = { task, builder: builder as any };
-        const newMachines = [...this.machines, machine];
-        return new Playlist<AllOutputTypes & { [K in IdentType]: Railroad<TaskOutputType> }, SourceType>(newMachines, this.finalizer)
+        const bundle = { task, builder: builder as any };
+        const newBundles = [...this.bundles, bundle];
+        return new Playlist<AllOutputTypes & { [K in IdentType]: Railroad<TaskOutputType> }, SourceType>(newBundles, this.finalizer)
     }
 
     /**
@@ -112,16 +112,16 @@ export class Playlist<
     async run(source: SourceType): Promise<AllOutputTypes> {
         const outputs: Record<string, any> = {};
     
-        for (const machine of this.machines) {
-            const input = machine.builder(source, outputs);
+        for (const bundle of this.bundles) {
+            const input = bundle.builder(source, outputs);
             
-            const isValid = await machine.task.validateInput(input);
+            const isValid = await bundle.task.validateInput(input);
             if (!isValid) {
-                throw new Error(`Input validation failed for task '${machine.task.ident}'`);
+                throw new Error(`Input validation failed for task '${bundle.task.ident}'`);
             }
 
-            const result = await machine.task.run(input);
-            outputs[machine.task.ident] = result;
+            const result = await bundle.task.run(input);
+            outputs[bundle.task.ident] = result;
         }
         if (this.finalizer) {
             await this.finalizer(source, outputs);

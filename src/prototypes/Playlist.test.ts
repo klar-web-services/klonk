@@ -70,9 +70,9 @@ describe("Playlist", () => {
       return { current: doubleResult.data.doubled };
     });
 
-    expect(base.machines).toHaveLength(0);
-    expect(withDouble.machines).toHaveLength(1);
-    expect(complete.machines).toHaveLength(2);
+    expect(base.bundles).toHaveLength(0);
+    expect(withDouble.bundles).toHaveLength(1);
+    expect(complete.bundles).toHaveLength(2);
 
     const result = await complete.run({ start: 3 });
     const doubleOut = result.double;
