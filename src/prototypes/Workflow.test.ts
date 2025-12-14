@@ -34,6 +34,43 @@ describe("Workflow", () => {
     expect(extended.triggers).toEqual([trigger]);
   });
 
+  it("configures retry settings with preventRetry", () => {
+    const workflow = Workflow.create()
+      .addTrigger(new TestTrigger("workflow-trigger"))
+      .preventRetry();
+    
+    expect(workflow.retry).toBe(false);
+    expect(workflow.maxRetries).toBe(false); // unchanged
+  });
+
+  it("configures retry settings with retryDelayMs", () => {
+    const workflow = Workflow.create()
+      .addTrigger(new TestTrigger("workflow-trigger"))
+      .retryDelayMs(500);
+    
+    expect(workflow.retry).toBe(500);
+    expect(workflow.maxRetries).toBe(false); // unchanged
+  });
+
+  it("configures retry settings with retryLimit", () => {
+    const workflow = Workflow.create()
+      .addTrigger(new TestTrigger("workflow-trigger"))
+      .retryLimit(3);
+    
+    expect(workflow.retry).toBe(1000); // unchanged default
+    expect(workflow.maxRetries).toBe(3);
+  });
+
+  it("chains retry configuration methods", () => {
+    const workflow = Workflow.create()
+      .addTrigger(new TestTrigger("workflow-trigger"))
+      .retryDelayMs(250)
+      .retryLimit(5);
+    
+    expect(workflow.retry).toBe(250);
+    expect(workflow.maxRetries).toBe(5);
+  });
+
   it("configures playlists via the builder", () => {
     const workflow = Workflow.create().addTrigger(new TestTrigger("workflow-trigger"));
     const playlist = new Playlist<{}, TriggerEvent<Ident, Payload>>();

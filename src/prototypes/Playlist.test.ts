@@ -95,6 +95,21 @@ class AlwaysFailingTask extends Task<{}, { result: string }, "failing"> {
   }
 }
 
+class FailsWithoutErrorTask extends Task<{}, { result: string }, "noerror"> {
+  constructor() {
+    super("noerror");
+  }
+
+  async validateInput(): Promise<boolean> {
+    return true;
+  }
+
+  async run(): Promise<Railroad<{ result: string }>> {
+    // Return failure without an error object to test fallback error messages
+    return { success: false } as Railroad<{ result: string }>;
+  }
+}
+
 describe("Playlist", () => {
   beforeEach(() => {
     flakyAttempts = 0;
@@ -240,6 +255,30 @@ describe("Playlist", () => {
     expect(sleepSpy).toHaveBeenCalledTimes(3);
   });
 
+  it("uses fallback error message when task fails without error (preventRetry)", async () => {
+    const playlist = new Playlist<{}, Source>()
+      .addTask(new FailsWithoutErrorTask())
+      .input(() => ({}));
+
+    await expect(
+      playlist.run({ start: 1 }, { retryDelay: false })
+    ).rejects.toThrow("Task 'noerror' failed and retries are disabled");
+  });
+
+  it("uses fallback error message when task fails without error (maxRetries exhausted)", async () => {
+    const playlist = new Playlist<{}, Source>()
+      .addTask(new FailsWithoutErrorTask())
+      .input(() => ({}));
+
+    const sleepSpy = vi.spyOn(playlist as any, "sleep").mockResolvedValue(undefined);
+
+    await expect(
+      playlist.run({ start: 1 }, { retryDelay: 10, maxRetries: 2 })
+    ).rejects.toThrow("Task 'noerror' failed after 2 retries");
+    
+    expect(sleepSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("uses default retry settings (infinite retries at 1000ms) when not specified", async () => {
     const playlist = new Playlist<{}, Source>()
       .addTask(new FlakyTask())
@@ -251,5 +290,14 @@ describe("Playlist", () => {
     
     expect(result.flaky?.success).toBe(true);
     expect(sleepSpy).toHaveBeenCalledWith(1000); // Default delay
+  });
+
+  it("sleep helper resolves after the specified delay", async () => {
+    vi.useFakeTimers();
+    const playlist = new Playlist<{}, Source>();
+    const sleepPromise = (playlist as any).sleep(100);
+    
+    await vi.advanceTimersByTimeAsync(100);
+    await sleepPromise; // Should resolve without error
   });
 });
