@@ -20,14 +20,14 @@
 
 ## Introduction
 
-Klonk is a code-first, type-safe automation engine designed with developer experience as a top priority. It provides powerful, composable primitives to build complex workflows and state machines with excellent autocomplete and type inference. If you've ever wanted to build event-driven automations or a stateful agent, but in code, with all the benefits of TypeScript, Klonk is for you.
+Klonk is a code-first, type-safe automation engine. It provides composable primitives to build workflows and state machines with autocomplete and type inference. If you've ever wanted to build event-driven automations or a stateful agent in code, with all the benefits of TypeScript, Klonk is for you.
 
 ![Skip to code examples ->](https://github.com/klar-web-services/klonk?tab=readme-ov-file#code-examples)
 
 The two main features are **Workflows** and **Machines**.
 
-- **Workflows**: Combine triggers with a series of tasks (a `Playlist`) to automate processes. Perfect for event-driven automation, like "when a file is added to Dropbox, parse it, and create an entry in Notion."
-- **Machines**: Create finite state machines where each state has its own `Playlist` of tasks and conditional transitions to other states. Ideal for building agents, multi-step processes, or any system with complex, stateful logic.
+- **Workflows**: Combine triggers with a series of tasks (a `Playlist`) to automate processes. Example: "when a file is added to Dropbox, parse it, and create an entry in Notion."
+- **Machines**: Finite state machines where each state has its own `Playlist` of tasks and conditional transitions to other states. Useful for agents, multi-step processes, or systems with stateful logic.
 
 ## Installation
 
@@ -98,13 +98,13 @@ workflow.start({ callback: (src, out) => console.log("✅ Done!", out) });
 ```
 
 **What you just saw:**
-- `source.data.userId` — typed from the trigger
-- `outputs["fetch-user"]` — typed by the task's ident string literal
-- `user.data.email` — narrowed after `isOk()` check
+- `source.data.userId` is typed from the trigger
+- `outputs["fetch-user"]` is typed by the task's ident string literal
+- `user.data.email` is narrowed after the `isOk()` check
 
 ## TypeScript Magic Moment
 
-Klonk's type inference isn't marketing—here's proof:
+Klonk's type inference isn't marketing. Here's proof:
 
 ```typescript
 import { Machine } from "@fkws/klonk";
@@ -119,16 +119,16 @@ const machine = Machine.create<{ count: number }>()
       condition: async () => true,
       weight: 1
     })
-    // @ts-expect-error — "typo-state" is not a valid state
+    // @ts-expect-error - "typo-state" is not a valid state
     .addTransition({ to: "typo-state", condition: async () => true, weight: 1 })
   , { initial: true });
 ```
 
-The `withStates<...>()` pattern means **you can't transition to a state that doesn't exist** — TypeScript catches it at compile time, not runtime.
+The `withStates<...>()` pattern means **you can't transition to a state that doesn't exist**. TypeScript catches it at compile time, not runtime.
 
 ## Core Concepts
 
-At the heart of Klonk are a few key concepts that work together.
+Klonk has a few concepts that work together.
 
 ### Task
 
@@ -175,15 +175,11 @@ if (isErr(result)) {
 
 #### Why Railroad?
 
-The name "Railroad" comes from Railway Oriented Programming - a functional approach where success travels the "happy path" and errors get shunted to the "error track". Combined with TypeScript's type narrowing, you get:
-
-- **No uncaught exceptions** - errors are values, not thrown
-- **Explicit error handling** - the type system forces you to handle failures
-- **Familiar patterns** - if you love Rust's `Result`, you'll feel right at home
+The name "Railroad" comes from Railway Oriented Programming, where success travels the "happy path" and errors get shunted to the "error track". Combined with TypeScript's type narrowing, you get explicit error handling without exceptions. If you like Rust's `Result`, you'll feel at home.
 
 ### Playlist
 
-A `Playlist` is a sequence of `Tasks` executed in order. The magic of a `Playlist` is that each task has access to the outputs of all previous tasks, in a fully type-safe way. You build a `Playlist` by chaining `.addTask().input()` calls:
+A `Playlist` is a sequence of `Tasks` executed in order. Each task has access to the outputs of all previous tasks, in a fully type-safe way. You build a `Playlist` by chaining `.addTask().input()` calls:
 
 ```typescript
 import { isOk } from "@fkws/klonk";
@@ -294,14 +290,14 @@ Notes:
 
 ## Features
 
-- **Type-Safe & Autocompleted**: Klonk leverages TypeScript's inference to provide a world-class developer experience. The inputs and outputs of every step are strongly typed, so you'll know at compile time if your logic is sound.
-- **Code-First**: Define your automations directly in TypeScript. No YAML, no drag-and-drop UIs. Just the full power of a real programming language.
-- **Composable & Extensible**: The core primitives (`Task`, `Trigger`) are simple abstract classes, making it easy to create your own reusable components and integrations.
+- **Type-Safe & Autocompleted**: Klonk uses TypeScript's inference so the inputs and outputs of every step are strongly typed. You'll know at compile time if your logic is sound.
+- **Code-First**: Define your automations directly in TypeScript. No YAML, no drag-and-drop UIs.
+- **Composable & Extensible**: The core primitives (`Task`, `Trigger`) are simple abstract classes, so you can create your own reusable components.
 - **Flexible Execution**: `Machines` run with configurable modes via `run(state, options)`: `any`, `leaf`, `roundtrip`, or `infinitely` (with optional `interval`).
 
 ## Klonkworks: Pre-built Components
 
-Coming soon(ish)! Klonkworks will be a large collection of pre-built Tasks, Triggers, and integrations. This will allow you to quickly assemble powerful automations that connect to a wide variety of services, often without needing to build your own components from scratch.
+Coming soon(ish)! Klonkworks will be a collection of pre-built Tasks, Triggers, and integrations that connect to various services, so you don't have to build everything from scratch.
 
 ## Code Examples
 
@@ -412,7 +408,7 @@ export class IntervalTrigger<TIdent extends string> extends Trigger<TIdent, { no
 <details>
 <summary><b>Building a Workflow</b></summary>
 
-Workflows are perfect for event-driven automations. This example creates a workflow that triggers when a new invoice PDF is added to a Dropbox folder. It then parses the invoice and creates a new item in a Notion database.
+Workflows work well for event-driven automations. This example triggers when a new invoice PDF is added to a Dropbox folder, parses the invoice, and creates a new item in a Notion database.
 
 Notice the fluent `.addTask(task).input(builder)` syntax - each task's input builder has access to `source` (trigger data) and `outputs` (all previous task results), with full type inference!
 
@@ -538,7 +534,7 @@ workflow.start({
 <details>
 <summary><b>Building a Machine</b></summary>
 
-`Machines` are ideal for building complex, stateful agents. This example shows an AI agent that takes a user's query, refines it, performs a web search, and generates a final response.
+`Machines` work well for stateful agents. This example shows an AI agent that takes a user's query, refines it, performs a web search, and generates a response.
 
 The `Machine` manages a `StateData` object. Each `StateNode`'s `Playlist` can modify this state, and the `Transitions` between states use it to decide which state to move to next.
 
@@ -677,7 +673,7 @@ console.log(state.finalResponse);
 
 ## Type System
 
-Klonk's type system is designed to be minimal yet powerful. Here's what makes it tick:
+Klonk's type system is minimal. Here's how it works:
 
 ### Core Types
 
