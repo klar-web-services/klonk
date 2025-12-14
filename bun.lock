@@ -1,16 +1,15 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "@fkws/klonk",
-      "dependencies": {
-        "pino": "^10.1.0",
-      },
       "devDependencies": {
         "@types/bun": "latest",
         "@types/node": "latest",
         "@vitest/coverage-v8": "^4.0.3",
         "bunup": "^0.6.2",
+        "pino": "^10.1.0",
         "vitest": "^4.0.3",
       },
       "peerDependencies": {

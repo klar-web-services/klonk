@@ -18,11 +18,15 @@ interface TaskBundle<SourceType, AllOutputTypes, TaskInputType, TaskOutputType, 
 }
 
 /**
- * Prevent TypeScript from inferring `T` from a builder argument so that the
- * task definition remains the source of truth. Useful for preserving safety
- * when chaining `.addTask` calls.
+ * Important typing note:
+ *
+ * We intentionally do NOT wrap the builder return in `NoInfer<...>`.
+ * Doing so breaks contextual typing for object literals, causing string literal unions
+ * (e.g. `"low" | "critical"`) to widen to `string` inside input builder callbacks.
+ *
+ * By letting `TaskInputType` be inferred from the `task` argument (and then checking the
+ * builder against it), literal unions are preserved and DX stays sane.
  */
-type NoInfer<T> = [T][T extends any ? 0 : never]
 
 /**
  * An ordered sequence of Tasks executed with strong type inference.
@@ -80,7 +84,7 @@ export class Playlist<
         const IdentType extends string
     >(
 		task: Task<TaskInputType, TaskOutputType, IdentType> & { ident: IdentType },
-		builder: (source: SourceType, outputs: AllOutputTypes) => NoInfer<TaskInputType>
+		builder: (source: SourceType, outputs: AllOutputTypes) => TaskInputType
     ): Playlist<AllOutputTypes & { [K in IdentType]: Railroad<TaskOutputType> }, SourceType> {
         const bundle = { task, builder: builder as any };
         const newBundles = [...this.bundles, bundle];
