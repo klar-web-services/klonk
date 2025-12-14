@@ -12,18 +12,12 @@ import { Trigger, type TriggerEvent } from "./Trigger"
  * See README Code Examples for building a full workflow.
  *
  * @template AllTriggerEvents - Union of all trigger event shapes in this workflow.
- * @template TAllOutputs - Aggregated outputs map shape produced by the playlist.
- * @template TPlaylist - Concrete playlist type or `null` before configuration.
  */
-export class Workflow<
-        AllTriggerEvents extends TriggerEvent<string, any>,
-        TAllOutputs extends Record<string, any>,
-        TPlaylist extends Playlist<TAllOutputs, AllTriggerEvents> | null
-> {
-    playlist: TPlaylist;
+export class Workflow<AllTriggerEvents extends TriggerEvent<string, any>> {
+    playlist: Playlist<any, AllTriggerEvents> | null;
     triggers: Trigger<string, any>[];
 
-    constructor(triggers: Trigger<string, any>[], playlist: TPlaylist) {
+    constructor(triggers: Trigger<string, any>[], playlist: Playlist<any, AllTriggerEvents> | null) {
         this.triggers = triggers;
         this.playlist = playlist;
     }
@@ -39,13 +33,9 @@ export class Workflow<
      */
     addTrigger<const TIdent extends string, TData>(
         trigger: Trigger<TIdent, TData>
-    ): Workflow<AllTriggerEvents | TriggerEvent<TIdent, TData>,
-                TAllOutputs,
-                Playlist<TAllOutputs, AllTriggerEvents | TriggerEvent<TIdent, TData>> | null
-               >{
-        const newTriggers = [...this.triggers, trigger] as Trigger<string, AllTriggerEvents | TriggerEvent<TIdent, TData>>[];
-        const newPlaylist = this.playlist as Playlist<TAllOutputs, AllTriggerEvents | TriggerEvent<TIdent, TData>> | null;
-
+    ): Workflow<AllTriggerEvents | TriggerEvent<TIdent, TData>> {
+        const newTriggers = [...this.triggers, trigger];
+        const newPlaylist = this.playlist as Playlist<any, AllTriggerEvents | TriggerEvent<TIdent, TData>> | null;
         return new Workflow(newTriggers, newPlaylist)
     }
 
@@ -53,20 +43,12 @@ export class Workflow<
      * Configure the playlist by providing a builder that starts from an empty
      * `Playlist<{}, AllTriggerEvents>` and returns your fully configured playlist.
      *
-     * This method ensures type inference flows from your tasks and idents into
-     * the resulting `TBuilderOutputs` map used by the workflow's callback.
-     *
-     * @template TBuilderOutputs - Aggregated outputs map (deduced from your tasks).
-     * @template TFinalPlaylist - Concrete playlist type returned by the builder.
      * @param builder - Receives an empty playlist and must return a configured one.
-     * @returns A new Workflow with the concrete playlist and output types.
+     * @returns A new Workflow with the configured playlist.
      */
-    setPlaylist<
-        TBuilderOutputs extends Record<string, any>,
-        TFinalPlaylist extends Playlist<TBuilderOutputs, AllTriggerEvents>
-    >(
-        builder: (p: Playlist<{}, AllTriggerEvents>) => TFinalPlaylist
-    ): Workflow<AllTriggerEvents, TBuilderOutputs, TFinalPlaylist> {
+    setPlaylist(
+        builder: (p: Playlist<{}, AllTriggerEvents>) => Playlist<any, AllTriggerEvents>
+    ): Workflow<AllTriggerEvents> {
         const initialPlaylist = new Playlist<{}, AllTriggerEvents>();
         const finalPlaylist = builder(initialPlaylist);
         return new Workflow(this.triggers, finalPlaylist);
@@ -82,7 +64,7 @@ export class Workflow<
      */
     async start({interval = 5000, callback}: {
         interval?: number, 
-        callback?: (source: AllTriggerEvents, outputs: TAllOutputs) => any 
+        callback?: (source: AllTriggerEvents, outputs: Record<string, any>) => any 
     } = {}): Promise<void> {
         if (!this.playlist) {
             throw new Error("Cannot start a workflow without a playlist.");
@@ -115,7 +97,7 @@ export class Workflow<
     /**
      * Create a new, empty workflow. Add triggers and set a playlist before starting.
      */
-    public static create(): Workflow<never, {}, null> {
-        return new Workflow<never, {}, null>([], null);
+    public static create(): Workflow<never> {
+        return new Workflow<never>([], null);
     }
 }

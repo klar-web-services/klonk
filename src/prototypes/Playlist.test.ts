@@ -1,4 +1,4 @@
-﻿import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Playlist } from "./Playlist";
 import { Task, type Railroad } from "./Task";
 
@@ -61,14 +61,18 @@ class RejectingTask extends Task<ValidationInput, ValidationOutput, ValidationId
 describe("Playlist", () => {
   it("chains tasks immutably and exposes prior outputs to builders", async () => {
     const base = new Playlist<{}, Source>();
-    const withDouble = base.addTask(new DoublingTask(), (source) => ({ value: source.start }));
-    const complete = withDouble.addTask(new IncrementTask(), (_, outputs) => {
-      const doubleResult = outputs.double;
-      if (!doubleResult.success) {
-        throw new Error("Expected the doubling task to succeed");
-      }
-      return { current: doubleResult.data.doubled };
-    });
+    const withDouble = base
+      .addTask(new DoublingTask())
+      .input((source) => ({ value: source.start }));
+    const complete = withDouble
+      .addTask(new IncrementTask())
+      .input((_, outputs) => {
+        const doubleResult = outputs.double;
+        if (doubleResult === null || !doubleResult.success) {
+          throw new Error("Expected the doubling task to succeed");
+        }
+        return { current: doubleResult.data.doubled };
+      });
 
     expect(base.bundles).toHaveLength(0);
     expect(withDouble.bundles).toHaveLength(1);
@@ -76,11 +80,11 @@ describe("Playlist", () => {
 
     const result = await complete.run({ start: 3 });
     const doubleOut = result.double;
-    if (!doubleOut.success) {
+    if (doubleOut === null || !doubleOut.success) {
       throw new Error("Expected doubling task to succeed");
     }
     const incrementOut = result.increment;
-    if (!incrementOut.success) {
+    if (incrementOut === null || !incrementOut.success) {
       throw new Error("Expected increment task to succeed");
     }
 
@@ -92,7 +96,8 @@ describe("Playlist", () => {
     const finalizer = vi.fn();
 
     const playlist = new Playlist<{}, Source>()
-      .addTask(new DoublingTask(), (source) => ({ value: source.start }))
+      .addTask(new DoublingTask())
+      .input((source) => ({ value: source.start }))
       .finally((source, outputs) => finalizer(source, outputs));
 
     const source: Source = { start: 4 };
@@ -104,10 +109,49 @@ describe("Playlist", () => {
   it("throws when a task fails validation and skips the finalizer", async () => {
     const finalizer = vi.fn();
     const playlist = new Playlist<{}, Source>()
-      .addTask(new RejectingTask(), () => ({ payload: "anything" }))
+      .addTask(new RejectingTask())
+      .input(() => ({ payload: "anything" }))
       .finally(finalizer);
 
     await expect(playlist.run({ start: 1 })).rejects.toThrow("Input validation failed for task 'validator'");
     expect(finalizer).not.toHaveBeenCalled();
+  });
+
+  it("skips a task when builder returns null and continues with remaining tasks", async () => {
+    const playlist = new Playlist<{}, Source>()
+      .addTask(new DoublingTask())
+      .input((source) => {
+        // Skip doubling if start value is negative
+        if (source.start < 0) return null;
+        return { value: source.start };
+      })
+      .addTask(new IncrementTask())
+      .input((_, outputs) => {
+        // Use doubled value if available, otherwise use 0
+        if (outputs.double === null) {
+          return { current: 0 };
+        }
+        if (!outputs.double.success) {
+          throw new Error("Expected the doubling task to succeed");
+        }
+        return { current: outputs.double.data.doubled };
+      });
+
+    // Run with positive value - doubling should happen
+    const resultPositive = await playlist.run({ start: 5 });
+    expect(resultPositive.double).not.toBeNull();
+    if (resultPositive.double !== null && resultPositive.double.success) {
+      expect(resultPositive.double.data.doubled).toBe(10);
+    }
+    if (resultPositive.increment !== null && resultPositive.increment.success) {
+      expect(resultPositive.increment.data.incremented).toBe(11);
+    }
+
+    // Run with negative value - doubling should be skipped
+    const resultNegative = await playlist.run({ start: -1 });
+    expect(resultNegative.double).toBeNull();
+    if (resultNegative.increment !== null && resultNegative.increment.success) {
+      expect(resultNegative.increment.data.incremented).toBe(1); // 0 + 1
+    }
   });
 });

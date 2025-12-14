@@ -32,11 +32,13 @@ type Transition<TStateData> = {
  * contains weighted conditional transitions to other nodes.
  *
  * @template TStateData - The shape of the external mutable state carried through the machine.
+ * @template TIdent - This node's identifier (string literal).
+ * @template AllStateIdents - Union of all valid state idents for transition targets.
  */
-export class StateNode<TStateData> {
+export class StateNode<TStateData, TIdent extends string = string, AllStateIdents extends string = string> {
     transitions?: Transition<TStateData>[];
     playlist: Playlist<any, TStateData>;
-    ident: string;
+    ident: TIdent;
     tempTransitions?: {to: string, condition: (stateData: TStateData) => Promise<boolean>, weight: number}[];
     retry: false | number;
     maxRetries: false | number;
@@ -45,38 +47,26 @@ export class StateNode<TStateData> {
     /**
      * Create a `StateNode`.
      *
-     * @param transitions - The resolved transitions from this node.
-     * @param playlist - The playlist to run when the node is entered.
+     * @param ident - The unique identifier for this node.
      */
-    constructor(transitions: Transition<TStateData>[], playlist: Playlist<any, TStateData>) {
-        this.transitions = transitions;
-        this.playlist = playlist;
-        this.ident = "";
+    constructor(ident: TIdent) {
+        this.transitions = [];
+        this.playlist = new Playlist<any, TStateData>();
+        this.ident = ident;
         this.retry = 1000;
         this.maxRetries = false;
     }
 
     /**
-     * Convenience factory for a new `StateNode` with no transitions and an empty playlist.
-     *
-     * @template TStateData
-     * @returns A new, unconfigured `StateNode`.
-     */
-    public static create<TStateData>(): StateNode<TStateData> {
-        return new StateNode<TStateData>([], new Playlist<any, TStateData>());
-    }
-
-    /**
      * Queue a transition to be resolved later during machine finalization.
-     * Use the target node `ident` instead of a direct reference; it will be
-     * resolved to a node instance by the machine.
+     * The `to` parameter is constrained to known state idents for autocomplete.
      *
-     * @param to - Target state `ident`.
+     * @param to - Target state `ident` (autocompleted from known states).
      * @param condition - Async predicate that decides if the transition should fire.
      * @param weight - Higher weight wins when multiple conditions are true; ties keep insertion order.
      * @returns This node for chaining.
      */
-    public addTransition({to, condition, weight}: {to: string, condition: (stateData: TStateData) => Promise<boolean>, weight: number}): StateNode<TStateData> {
+    public addTransition({to, condition, weight}: {to: AllStateIdents, condition: (stateData: TStateData) => Promise<boolean>, weight: number}): StateNode<TStateData, TIdent, AllStateIdents> {
         if (!this.tempTransitions) {
             this.tempTransitions = [];
         }
@@ -94,14 +84,9 @@ export class StateNode<TStateData> {
      * @param arg - Either a `Playlist` instance or a builder function that returns one.
      * @returns This node for chaining.
      */
-    public setPlaylist(playlist: Playlist<any, TStateData>): StateNode<TStateData>;
-    public setPlaylist<
-        TBuilderOutputs extends Record<string, any>,
-        TFinalPlaylist extends Playlist<TBuilderOutputs, TStateData>
-    >(
-        builder: (p: Playlist<{}, TStateData>) => TFinalPlaylist
-    ): StateNode<TStateData>;
-    public setPlaylist(arg: any): StateNode<TStateData> {
+    public setPlaylist(playlist: Playlist<any, TStateData>): StateNode<TStateData, TIdent, AllStateIdents>;
+    public setPlaylist(builder: (p: Playlist<{}, TStateData>) => Playlist<any, TStateData>): StateNode<TStateData, TIdent, AllStateIdents>;
+    public setPlaylist(arg: any): StateNode<TStateData, TIdent, AllStateIdents> {
         if (typeof arg === "function") {
             const initial = new Playlist<{}, TStateData>();
             const finalPlaylist = arg(initial);
@@ -117,7 +102,7 @@ export class StateNode<TStateData> {
      *
      * @returns This node for chaining.
      */
-    public preventRetry(): StateNode<TStateData> {
+    public preventRetry(): StateNode<TStateData, TIdent, AllStateIdents> {
         this.retry = false;
         return this;
     }
@@ -128,7 +113,7 @@ export class StateNode<TStateData> {
      * @param delayMs - Delay in milliseconds between retries.
      * @returns This node for chaining.
      */
-    public retryDelayMs(delayMs: number): StateNode<TStateData> {
+    public retryDelayMs(delayMs: number): StateNode<TStateData, TIdent, AllStateIdents> {
         this.retry = delayMs;
         return this;
     }
@@ -140,19 +125,8 @@ export class StateNode<TStateData> {
      * @param maxRetries - Maximum number of retry attempts before giving up.
      * @returns This node for chaining.
      */
-    public retryLimit(maxRetries: number): StateNode<TStateData> {
+    public retryLimit(maxRetries: number): StateNode<TStateData, TIdent, AllStateIdents> {
         this.maxRetries = maxRetries;
-        return this;
-    }
-
-    /**
-     * Assign a unique identifier for this node. Required for transition resolution.
-     *
-     * @param ident - Unique node identifier.
-     * @returns This node for chaining.
-     */
-    public setIdent(ident: string): StateNode<TStateData> {
-        this.ident = ident;
         return this;
     }
 
@@ -210,12 +184,36 @@ export class StateNode<TStateData> {
 }
   
 /**
+ * Returned by `Machine.create()` - you must call `.withStates<...>()` to declare state idents.
+ * 
+ * This ensures all state identifiers are known upfront for full transition autocomplete.
+ */
+export interface MachineNeedsStates<TStateData> {
+    /**
+     * Declare all state identifiers that will be used in this machine.
+     * This enables full autocomplete for transition targets.
+     * 
+     * @template TIdents - Union of all state idents (e.g., `"idle" | "running" | "complete"`).
+     * @returns The machine, ready for adding states.
+     * 
+     * @example
+     * Machine.create<MyState>()
+     *     .withStates<"idle" | "running" | "complete">()
+     *     .addState("idle", node => node
+     *         .addTransition({ to: "running", ... })  // Autocomplete works!
+     *     )
+     */
+    withStates<TIdents extends string>(): Machine<TStateData, TIdents>;
+}
+
+/**
  * A finite state machine that coordinates execution of `StateNode` playlists
  * and transitions between them based on async conditions.
  *
  * @template TStateData - The shape of the external mutable state carried through the machine.
+ * @template AllStateIdents - Union of all declared state identifiers.
  */
-export class Machine<TStateData> {
+export class Machine<TStateData, AllStateIdents extends string = never> {
     public initialState: StateNode<TStateData> | null = null;
     statesToCreate: StateNode<TStateData>[] = [];
     private currentState: StateNode<TStateData> | null = null;
@@ -265,13 +263,29 @@ export class Machine<TStateData> {
     }
 
     /**
-     * Convenience factory for a new `Machine`.
+     * Create a new Machine. You must call `.withStates<...>()` next to declare
+     * all state identifiers before adding states.
      *
-     * @template TStateData
-     * @returns A new unfinalized machine instance.
+     * @template TStateData - The shape of the mutable state carried through the machine.
+     * @returns A machine builder that requires `.withStates()` to be called.
+     * 
+     * @example
+     * Machine.create<MyState>()
+     *     .withStates<"idle" | "running">()
+     *     .addState("idle", node => ...)
      */
-    public static create<TStateData>(): Machine<TStateData> {
-        return new Machine<TStateData>()
+    public static create<TStateData>(): MachineNeedsStates<TStateData> {
+        return new Machine<TStateData>() as unknown as MachineNeedsStates<TStateData>;
+    }
+
+    /**
+     * Declare all state identifiers for this machine.
+     * Called automatically via the `MachineNeedsStates` interface.
+     * 
+     * @internal
+     */
+    public withStates<TIdents extends string>(): Machine<TStateData, TIdents> {
+        return this as unknown as Machine<TStateData, TIdents>;
     }
 
     /**
@@ -344,22 +358,44 @@ export class Machine<TStateData> {
     }
 
     /**
-     * Add a state to the machine.
+     * Add a state to the machine using a builder pattern.
+     * 
+     * The builder receives a StateNode with the ident already set, and with
+     * transition targets constrained to all known state idents (for autocomplete).
      *
-     * @param state - The state node to add.
+     * @param ident - Unique identifier for this state (use a string literal).
+     * @param builder - Function that configures the state node.
      * @param options - Options controlling how the state is added.
      * @param options.initial - If true, marks this state as the initial state.
-     * @returns This machine for chaining.
+     * @returns This machine for chaining (with the new ident added to known states).
+     * 
+     * @example
+     * Machine.create<MyState>()
+     *     .addState("idle", node => node
+     *         .setPlaylist(p => p.addTask(...).input(...))
+     *         .addTransition({ to: "running", condition: async (s) => s.ready, weight: 1 })
+     *     , { initial: true })
+     *     .addState("running", node => node
+     *         .addTransition({ to: "idle", condition: async () => true, weight: 1 })
+     *     )
      */
-    public addState(state: StateNode<TStateData>, options: { initial?: boolean } = {}): Machine<TStateData> {
+    public addState<const TIdent extends string>(
+        ident: TIdent,
+        builder: (node: StateNode<TStateData, TIdent, AllStateIdents | TIdent>) => StateNode<TStateData, TIdent, AllStateIdents | TIdent>,
+        options: { initial?: boolean } = {}
+    ): Machine<TStateData, AllStateIdents | TIdent> {
         const logger = (this.logger?.child?.({ path: "machine.addState", instance: this.ident }) ?? this.logger)
-        logger?.info({ phase: 'start', state: state.ident, isInitial: !!options.initial }, 'Adding state')
-        this.statesToCreate.push(state);
+        logger?.info({ phase: 'start', state: ident, isInitial: !!options.initial }, 'Adding state')
+        
+        const node = new StateNode<TStateData, TIdent, AllStateIdents | TIdent>(ident);
+        const configuredNode = builder(node);
+        
+        this.statesToCreate.push(configuredNode as any);
         if (options.initial) {
-            this.initialState = state;
+            this.initialState = configuredNode as any;
         }
-        logger?.info({ phase: 'end', state: state.ident }, 'State added')
-        return this;
+        logger?.info({ phase: 'end', state: ident }, 'State added')
+        return this as unknown as Machine<TStateData, AllStateIdents | TIdent>;
     }
 
     /**

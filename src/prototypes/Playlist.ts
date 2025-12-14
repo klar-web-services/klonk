@@ -1,28 +1,34 @@
 import { Task, Railroad } from "./Task"
 
 /**
- * Function used to build the input for a Task from the Playlist context.
- *
- * @template SourceType - The source object passed to `run` (e.g., trigger event or machine state).
- * @template AllOutputTypes - Accumulated outputs from previously executed tasks.
- * @template TaskInputType - Concrete input type required by the target Task.
- */
-type InputBuilder<SourceType, AllOutputTypes, TaskInputType> = (source: SourceType, outputs: AllOutputTypes) => TaskInputType
-
-/**
  * @internal Internal assembly type that couples a task with its input builder.
  */
-interface TaskBundle<SourceType, AllOutputTypes, TaskInputType, TaskOutputType, IdentType extends string> {
-	task: Task<TaskInputType, TaskOutputType, IdentType>
-	builder: InputBuilder<SourceType, AllOutputTypes, TaskInputType>
+interface TaskBundle {
+    task: Task<any, any, string>
+    builder: (source: any, outputs: any) => any
 }
 
 /**
- * Prevent TypeScript from inferring `T` from a builder argument so that the
- * task definition remains the source of truth. Useful for preserving safety
- * when chaining `.addTask` calls.
+ * Returned by `Playlist.addTask()` - you must call `.input()` to provide the task's input builder.
+ * 
+ * If you see this type in an error message, it means you forgot to call `.input()` after `.addTask()`.
  */
-type NoInfer<T> = [T][T extends any ? 0 : never]
+export interface TaskInputRequired<
+    TInput,
+    TOutput,
+    TIdent extends string,
+    AllOutputTypes extends Record<string, any>,
+    SourceType
+> {
+    /**
+     * Provide the input builder for this task.
+     * The builder receives the source and outputs from previous tasks.
+     * 
+     * Return `null` to skip this task - its output will be `null` in the outputs map.
+     */
+    input(builder: (source: SourceType, outputs: AllOutputTypes) => TInput | null): 
+        Playlist<AllOutputTypes & { [K in TIdent]: Railroad<TOutput> | null }, SourceType>
+}
 
 /**
  * An ordered sequence of Tasks executed with strong type inference.
@@ -48,50 +54,61 @@ export class Playlist<
     /**
      * Internal list of task + builder pairs in the order they will run.
      */
-    bundles: TaskBundle<any, any, any, any, string>[]
+    bundles: TaskBundle[]
 
     /**
      * Optional finalizer invoked after all tasks complete (successfully or not).
      */
     finalizer?: (source: SourceType, outputs: Record<string, any>) => void | Promise<void>
 
-    constructor(bundles: TaskBundle<any, any, any, any, string>[] = [], finalizer?: (source: SourceType, outputs: Record<string, any>) => void | Promise<void>) {
+    constructor(bundles: TaskBundle[] = [], finalizer?: (source: SourceType, outputs: Record<string, any>) => void | Promise<void>) {
         this.bundles = bundles;
         this.finalizer = finalizer;
     }
 
     /**
      * Append a task to the end of the playlist.
+     * 
+     * Returns an object with an `input` method that accepts a builder function.
+     * The builder receives the source and all previous task outputs, and must
+     * return the input shape required by the task.
      *
-     * The task's `ident` is used as a key in the aggregated `outputs` object made
-     * available to subsequent builders. The value under that key is the task's
-     * `Railroad<Output>` result, enabling type-safe success/error handling.
+     * @example
+     * playlist
+     *     .addTask(new MyTask("myTask"))
+     *     .input((source, outputs) => ({ value: source.startValue }))
+     *     .addTask(new AnotherTask("another"))
+     *     .input((source, outputs) => ({ 
+     *         prev: outputs.myTask.success ? outputs.myTask.data : null 
+     *     }))
      *
-     * @template TaskInputType - Input required by the task.
-     * @template TaskOutputType - Output produced by the task.
-     * @template IdentType - The task's ident (string literal recommended).
-     * @param task - The task instance to run at this step.
-     * @param builder - Function that builds the task input from `source` and prior `outputs`.
-     * @returns A new Playlist with the output map extended to include this task's result.
+     * @template TInput - Input type required by the task.
+     * @template TOutput - Output type produced by the task.
+     * @template TIdent - The task's identifier (string literal).
+     * @param task - The task instance to add.
+     * @returns An object with an `input` method for providing the builder.
      */
     addTask<
-        TaskInputType,
-        TaskOutputType,
-        const IdentType extends string
+        TInput,
+        TOutput,
+        const TIdent extends string
     >(
-		task: Task<TaskInputType, TaskOutputType, IdentType> & { ident: IdentType },
-		builder: (source: SourceType, outputs: AllOutputTypes) => NoInfer<TaskInputType>
-    ): Playlist<AllOutputTypes & { [K in IdentType]: Railroad<TaskOutputType> }, SourceType> {
-        const bundle = { task, builder: builder as any };
-        const newBundles = [...this.bundles, bundle];
-        return new Playlist<AllOutputTypes & { [K in IdentType]: Railroad<TaskOutputType> }, SourceType>(newBundles, this.finalizer)
+        task: Task<TInput, TOutput, TIdent>
+    ): TaskInputRequired<TInput, TOutput, TIdent, AllOutputTypes, SourceType> {
+        return {
+            input: (builder: (source: SourceType, outputs: AllOutputTypes) => TInput) => {
+                const bundle: TaskBundle = { task, builder: builder as any };
+                const newBundles = [...this.bundles, bundle];
+                return new Playlist(newBundles, this.finalizer)
+            }
+        }
     }
 
     /**
      * Register a callback to run after the playlist finishes. Use this hook to
      * react to the last task or to adjust machine state before a transition.
      *
-     * Note: The callback receives the strongly-typed `outputs` object.
+     * Note: The callback receives the strongly-typed `outputs` and `source` objects.
      *
      * @param finalizer - Callback executed once after all tasks complete.
      * @returns This playlist for chaining.
@@ -104,6 +121,7 @@ export class Playlist<
     /**
      * Execute all tasks in order, building each task's input via its builder
      * and storing each result under the task's ident in the outputs map.
+     * If a builder returns `null`, the task is skipped and its output is `null`.
      * If a task's `validateInput` returns false, execution stops with an error.
      *
      * @param source - The source object for this run (e.g., trigger event or machine state).
@@ -114,6 +132,12 @@ export class Playlist<
     
         for (const bundle of this.bundles) {
             const input = bundle.builder(source, outputs);
+            
+            // Skip task if builder returns null
+            if (input === null) {
+                outputs[bundle.task.ident] = null;
+                continue;
+            }
             
             const isValid = await bundle.task.validateInput(input);
             if (!isValid) {

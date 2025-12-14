@@ -19,6 +19,7 @@
 *A code-first, type-safe automation engine for TypeScript.*
 
 ## Introduction
+
 Klonk is a code-first, type-safe automation engine designed with developer experience as a top priority. It provides powerful, composable primitives to build complex workflows and state machines with world-class autocomplete and type inference. If you've ever wanted to build event-driven automations or a stateful agent, but in code, with all the benefits of TypeScript, Klonk is for you.
 
 ![Code](./.github/assets/blurry.png)
@@ -30,6 +31,7 @@ The two main features are **Workflows** and **Machines**.
 - **Machines**: Create finite state machines where each state has its own `Playlist` of tasks and conditional transitions to other states. Ideal for building agents, multi-step processes, or any system with complex, stateful logic.
 
 ## Installation
+
 ```bash
 bun add @fkws/klonk
 # or
@@ -41,26 +43,80 @@ npm i @fkws/klonk
 At the heart of Klonk are a few key concepts that work together.
 
 ### Task
+
 A `Task` is the smallest unit of work. It's an abstract class with two main methods you need to implement:
 - `validateInput(input)`: Runtime validation of the task's input (on top of strong typing).
 - `run(input)`: Executes the task's logic.
 
-Tasks use a `Railroad` return type, which is a simple way to handle success and error states without throwing exceptions. You can also use it for the rest of your application.
+Tasks use a `Railroad` return type, which is a simple discriminated union for handling success and error states without throwing exceptions. Shoutout to Rust!
 
 ### Playlist
-A `Playlist` is a sequence of `Tasks` that are executed in order. The magic of a `Playlist` is that each task has access to the outputs of all the tasks that ran before it, in a fully type-safe way. You build a `Playlist` by chaining `.addTask()` calls.
+
+A `Playlist` is a sequence of `Tasks` executed in order. The magic of a `Playlist` is that each task has access to the outputs of all previous tasks, in a fully type-safe way. You build a `Playlist` by chaining `.addTask().input()` calls:
+
+```typescript
+playlist
+    .addTask(new FetchTask("fetch"))
+    .input((source) => ({ url: source.targetUrl }))
+    .addTask(new ParseTask("parse"))
+    .input((source, outputs) => ({
+        // Full autocomplete! outputs.fetch?.success, outputs.fetch?.data, etc.
+        html: outputs.fetch?.success ? outputs.fetch.data.body : ""
+    }))
+```
+
+> **Note**: If you forget to call `.input()`, TypeScript will show an error mentioning `TaskInputRequired` - this is your hint that you need to provide the input builder!
+
+#### Skipping Tasks
+
+Need to conditionally skip a task? Just return `null` from the input builder:
+
+```typescript
+playlist
+    .addTask(new NotifyTask("notify"))
+    .input((source, outputs) => {
+        // Skip notification if previous task failed
+        if (!outputs.fetch?.success) {
+            return null;  // Task will be skipped!
+        }
+        return { message: "Success!", level: "info" };
+    })
+```
+
+When a task is skipped:
+- Its output in the `outputs` map is `null` (not a `Railroad`)
+- The playlist continues to the next task
+- Subsequent tasks can check `if (outputs.notify === null)` to know it was skipped
+
+This gives you Rust-like `Option` semantics using TypeScript's native `null` - no extra types needed!
 
 ### Trigger
+
 A `Trigger` is what kicks off a `Workflow`. It's an event source. Klonk can be extended with triggers for anything: file system events, webhooks, new database entries, messages in a queue, etc.
 
 ### Workflow
+
 A `Workflow` connects one or more `Triggers` to a `Playlist`. When a trigger fires an event, the workflow runs the playlist, passing the event data as the initial input. This allows you to create powerful, event-driven automations.
 
 ### Machine
-A `Machine` is a finite state machine. It's made up of `StateNode`s. Each `StateNode` represents a state and has two key components:
-1.  A `Playlist` that runs when the machine enters that state.
-2.  A set of conditional `Transitions` to other states.
-3.  Retry rules for when a transition fails to resolve.
+
+A `Machine` is a finite state machine. You build it by declaring all state identifiers upfront with `.withStates<...>()`, then adding states with `.addState()`:
+
+```typescript
+Machine.create<MyStateData>()
+    .withStates<"idle" | "running" | "complete">()  // Declare all states
+    .addState("idle", node => node
+        .setPlaylist(p => p.addTask(...).input(...))
+        .addTransition({ to: "running", condition: ..., weight: 1 })  // Autocomplete!
+    , { initial: true })
+    .addState("running", node => node...)
+    .finalize({ ident: "my-machine" });
+```
+
+Each state has:
+1. A `Playlist` that runs when the machine enters that state.
+2. A set of conditional `Transitions` to other states (with autocomplete!).
+3. Retry rules for when a transition fails to resolve.
 
 The `Machine` carries a mutable `stateData` object that can be read from and written to by playlists and transition conditions throughout its execution.
 
@@ -75,15 +131,18 @@ Notes:
 - Retries are independent of `stopAfter`. A state can retry its transition condition (with optional delay) without affecting the `stopAfter` count until a state transition actually occurs.
 
 ## Features
+
 - **Type-Safe & Autocompleted**: Klonk leverages TypeScript's inference to provide a world-class developer experience. The inputs and outputs of every step are strongly typed, so you'll know at compile time if your logic is sound.
 - **Code-First**: Define your automations directly in TypeScript. No YAML, no drag-and-drop UIs. Just the full power of a real programming language.
 - **Composable & Extensible**: The core primitives (`Task`, `Trigger`) are simple abstract classes, making it easy to create your own reusable components and integrations.
 - **Flexible Execution**: `Machines` run with configurable modes via `run(state, options)`: `any`, `leaf`, `roundtrip`, or `infinitely` (with optional `interval`).
 
 ## Klonkworks: Pre-built Components
+
 Coming soon(ish)! Klonkworks will be a large collection of pre-built Tasks, Triggers, and integrations. This will allow you to quickly assemble powerful automations that connect to a wide variety of services, often without needing to build your own components from scratch.
 
 ## Code Examples
+
 <details>
 <summary><b>Creating a Task</b></summary>
 
@@ -106,9 +165,9 @@ type TABasicTextInferenceOutput = {
 
 // A Task is a generic class. You provide the Input, Output, and an Ident (a unique string literal for the task).
 export class TABasicTextInference<IdentType extends string> extends Task<
-    TABasicTextInferenceInput,  // These type parameters are part of the secret sauce typing system Klonk uses.
-    TABasicTextInferenceOutput, // Input Type, Output Type, Ident Type
-    IdentType
+    TABasicTextInferenceInput,  // Input Type
+    TABasicTextInferenceOutput, // Output Type
+    IdentType                   // Ident Type (string literal for type-safe output keys)
 > {
     constructor(ident: IdentType, public client: OpenRouterClient) {
         super(ident);
@@ -135,13 +194,11 @@ export class TABasicTextInference<IdentType extends string> extends Task<
             });
             // On success, return a success object with your data.
             return {
-                success: true, // Railroad is a simple result type
-                data: {
-                    text: result
-                }
+                success: true,
+                data: { text: result }
             };
         } catch (error) {
-            // On failure, return an error object. The next Task's input builder will react to this.
+            // On failure, return an error object.
             return {
                 success: false,
                 error: error instanceof Error ? error : new Error(String(error))
@@ -174,7 +231,7 @@ export class IntervalTrigger<TIdent extends string> extends Trigger<TIdent, { no
         if (this.intervalId) return; // Prevent multiple intervals.
 
         this.intervalId = setInterval(() => {
-            // When an event occurs, use pushEvent to add it to the internal queue for the workflow to poll.
+            // When an event occurs, use pushEvent to add it to the internal queue.
             this.pushEvent({ now: new Date() });
         }, this.intervalMs);
     }
@@ -195,21 +252,21 @@ export class IntervalTrigger<TIdent extends string> extends Trigger<TIdent, { no
 
 Workflows are perfect for event-driven automations. This example creates a workflow that triggers when a new invoice PDF is added to a Dropbox folder. It then parses the invoice and creates a new item in a Notion database.
 
-Notice how the `builder` function for each task (`(source, outputs) => { ... }`) has access to the initial `source` data (from the trigger) and the `outputs` of all previous tasks. Klonk automatically infers the types for `source` and `outputs`!
+Notice the fluent `.addTask(task).input(builder)` syntax - each task's input builder has access to `source` (trigger data) and `outputs` (all previous task results), with full type inference!
 
 ```typescript
 import { z } from 'zod';
 import { Workflow } from '@fkws/klonk';
 
-// The following example requires a lot of tasks, integrations and a trigger.
+// The following example requires tasks, integrations and a trigger.
 // Soon, you will be able to import these from @fkws/klonkworks.
 import { TACreateNotionDatabaseItem, TANotionGetTitlesAndIdsForDatabase, TAParsePdfAi, TADropboxDownloadFile } from '@fkws/klonkworks/tasks';
 import { INotion, IOpenRouter, IDropbox } from '@fkws/klonkworks/integrations';
 import { TRDropboxFileAdded } from '@fkws/klonkworks/triggers';
 
 // Providers and clients are instantiated as usual.
-const notionProvider = new INotion({apiKey: process.env.NOTION_API_KEY!});
-const openrouterProvider = new IOpenRouter({apiKey: process.env.OPENROUTER_API_KEY!});
+const notionProvider = new INotion({ apiKey: process.env.NOTION_API_KEY! });
+const openrouterProvider = new IOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY! });
 const dropboxProvider = new IDropbox({
     appKey: process.env.DROPBOX_APP_KEY!,
     appSecret: process.env.DROPBOX_APP_SECRET!,
@@ -217,108 +274,100 @@ const dropboxProvider = new IDropbox({
 });
 
 // Start building a workflow.
-const workflow = Workflow.create().addTrigger(
-    // A workflow is initiated by one or more triggers.
-    new TRDropboxFileAdded("dropbox-trigger", {
-        client: dropboxProvider,
-        folderPath: process.env.DROPBOX_INVOICES_FOLDER_PATH ?? "",
-    })
-).setPlaylist(p => p // Builder function allows complex types to be assembled!
-    .addTask( // .addTask() adds a task to the playlist.
-        new TANotionGetTitlesAndIdsForDatabase("get-payees", notionProvider),
-        // The second argument to addTask builds the input for that task.
-        // `source` is the data from the trigger, `outputs` contains all previous task outputs.
-        (source, outputs) => {
-            return { database_id: process.env.NOTION_PAYEES_DATABASE_ID!}
-        }
-    ).addTask(
-        new TANotionGetTitlesAndIdsForDatabase("get-expense-types", notionProvider),
-        (source, outputs) => { // Type inference works for source and outputs!
-            return { database_id: process.env.NOTION_EXPENSE_TYPES_DATABASE_ID!}
-        }
-    ).addTask(
-        new TADropboxDownloadFile("download-invoice-pdf", dropboxProvider),
-        (source, outputs) => {
-            // The `source` object contains the trigger ident, so you can handle multiple triggers.
-            if (source.triggerIdent == "dropbox-trigger") {
-                return { file_metadata: source.data}
-            } else {
-                throw new Error(`Trigger ${source.triggerIdent} is not implemented for task download-invoice-pdf.`)
+const workflow = Workflow.create()
+    .addTrigger(
+        new TRDropboxFileAdded("dropbox-trigger", {
+            client: dropboxProvider,
+            folderPath: process.env.DROPBOX_INVOICES_FOLDER_PATH ?? "",
+        })
+    )
+    .setPlaylist(p => p
+        // Get payees from Notion
+        .addTask(new TANotionGetTitlesAndIdsForDatabase("get-payees", notionProvider))
+        .input((source, outputs) => ({
+            database_id: process.env.NOTION_PAYEES_DATABASE_ID!
+        }))
+
+        // Get expense types from Notion
+        .addTask(new TANotionGetTitlesAndIdsForDatabase("get-expense-types", notionProvider))
+        .input((source, outputs) => ({
+            database_id: process.env.NOTION_EXPENSE_TYPES_DATABASE_ID!
+        }))
+
+        // Download the invoice PDF from Dropbox
+        .addTask(new TADropboxDownloadFile("download-invoice-pdf", dropboxProvider))
+        .input((source, outputs) => {
+            // The `source` object contains the trigger ident for discrimination
+            if (source.triggerIdent === "dropbox-trigger") {
+                return { file_metadata: source.data }
             }
-        }
-    ).addTask(
-        new TAParsePdfAi("parse-invoice", openrouterProvider),
-        (source, outputs) => {
-            // Access the outputs of previous tasks via the `outputs` object.
-            // The keys are the idents you provided to the tasks.
+            throw new Error(`Trigger ${source.triggerIdent} not implemented`);
+        })
+
+        // Parse the PDF with AI
+        .addTask(new TAParsePdfAi("parse-invoice", openrouterProvider))
+        .input((source, outputs) => {
+            // Access outputs of previous tasks - fully typed!
+            // Check for null (skipped) and success
             const downloadResult = outputs['download-invoice-pdf'];
-            if (!downloadResult.success) {
-                throw downloadResult.error ?? new Error('Failed to download invoice PDF');
+            if (!downloadResult?.success) {
+                throw downloadResult?.error ?? new Error('Failed to download invoice PDF');
             }
 
             const payeesResult = outputs['get-payees'];
-            if (!payeesResult.success) {
-                throw payeesResult.error ?? new Error('Failed to load payees');
+            if (!payeesResult?.success) {
+                throw payeesResult?.error ?? new Error('Failed to load payees');
             }
 
             const expenseTypesResult = outputs['get-expense-types'];
-            if (!expenseTypesResult.success) {
-                throw expenseTypesResult.error ?? new Error('Failed to load expense types');
+            if (!expenseTypesResult?.success) {
+                throw expenseTypesResult?.error ?? new Error('Failed to load expense types');
             }
-
-            const payees = payeesResult.data;
-            const expenseTypes = expenseTypesResult.data;
 
             return {
                 pdf: downloadResult.data.file,
                 instructions: "Extract data from the invoice",
                 schema: z.object({
-                    payee: z.enum(payees.map(p => p.id) as [string, ...string[]])
-                        .describe("The payee id of the invoice according to this map: " + JSON.stringify(payees, null, 2)),
+                    payee: z.enum(payeesResult.data.map(p => p.id) as [string, ...string[]])
+                        .describe("The payee id"),
                     total: z.number()
-                        .describe("The total amount of the invoice."),
+                        .describe("The total amount"),
                     invoice_date: z.string()
                         .regex(/^\d{4}-\d{2}-\d{2}$/)
-                        .describe("The date of the invoice as an ISO 8601 string (YYYY-MM-DD)."),
-                    expense_type: z.enum(expenseTypes.map(e => e.id) as [string, ...string[]])
-                        .describe("The expense type id of the invoice according to this map: " + JSON.stringify(expenseTypes, null, 2))
+                        .describe("Date as YYYY-MM-DD"),
+                    expense_type: z.enum(expenseTypesResult.data.map(e => e.id) as [string, ...string[]])
+                        .describe("The expense type id")
                 })
             }
-        }
-    ).addTask(
-        new TACreateNotionDatabaseItem("create-notion-invoice", notionProvider),
-        (source, outputs) => {
+        })
+
+        // Create the invoice entry in Notion
+        .addTask(new TACreateNotionDatabaseItem("create-notion-invoice", notionProvider))
+        .input((source, outputs) => {
             const invoiceResult = outputs['parse-invoice'];
-            if (!invoiceResult.success) {
-                throw invoiceResult.error ?? new Error('Failed to parse invoice');
+            if (!invoiceResult?.success) {
+                throw invoiceResult?.error ?? new Error('Failed to parse invoice');
             }
             const invoiceData = invoiceResult.data;
-            const properties = {
-                'Name': { 'title': [{ 'text': { 'content': 'Invoice' } }] },
-                'Payee': { 'relation': [{ 'id': invoiceData.payee }] },
-                'Total': { 'number': invoiceData.total },
-                'Invoice Date': { 'date': { 'start': invoiceData.invoice_date } },
-                'Expense Type': { 'relation': [{ 'id': invoiceData.expense_type }] }
-            };
             return {
                 database_id: process.env.NOTION_INVOICES_DATABASE_ID!,
-                properties: properties
+                properties: {
+                    'Name': { 'title': [{ 'text': { 'content': 'Invoice' } }] },
+                    'Payee': { 'relation': [{ 'id': invoiceData.payee }] },
+                    'Total': { 'number': invoiceData.total },
+                    'Invoice Date': { 'date': { 'start': invoiceData.invoice_date } },
+                    'Expense Type': { 'relation': [{ 'id': invoiceData.expense_type }] }
+                }
             }
-        }
-    )
-)
+        })
+    );
 
 // Run the workflow
 console.log('[WCreateNotionInvoiceFromFile] Starting workflow...');
-// .start() begins the workflow's trigger polling loop.
 workflow.start({
-    // The callback is executed every time the playlist successfully completes.
     callback: (source, outputs) => {
         console.log('[WCreateNotionInvoiceFromFile] Workflow completed');
-        console.dir({
-            source,
-            outputs
-        }, { depth: null });
+        console.dir({ source, outputs }, { depth: null });
     }
 });
 ```
@@ -327,12 +376,12 @@ workflow.start({
 <details>
 <summary><b>Building a Machine</b></summary>
 
-`Machines` are ideal for building complex, stateful agents. This example shows a simple AI agent that takes a user's query, refines it, performs a web search, and then generates a final response.
+`Machines` are ideal for building complex, stateful agents. This example shows an AI agent that takes a user's query, refines it, performs a web search, and generates a final response.
 
-The `Machine` manages a `StateData` object. Each `StateNode`'s `Playlist` can modify this state, and the `Transitions` between states can use it to decide which state to move to next.
+The `Machine` manages a `StateData` object. Each `StateNode`'s `Playlist` can modify this state, and the `Transitions` between states use it to decide which state to move to next.
 
 ```typescript
-import { Machine, StateNode } from "@fkws/klonk"
+import { Machine } from "@fkws/klonk"
 import { OpenRouterClient } from "./tasks/common/OpenrouterClient" 
 import { Model } from "./tasks/common/models"
 import { TABasicTextInference } from "./tasks/TABasicTextInference"
@@ -349,15 +398,15 @@ type StateData = {
             url: string;
             title: string;
             content: string;
-            raw_content?: string | undefined;
+            raw_content?: string;
             score: string;
         }[];
         query: string;
-        answer?: string | undefined;
-        images?: string[] | undefined;
-        follow_up_questions?: string[] | undefined;
+        answer?: string;
+        images?: string[];
+        follow_up_questions?: string[];
         response_time: string;
-    },
+    };
     finalResponse?: string;
 }
 
@@ -365,116 +414,140 @@ const client = new OpenRouterClient(process.env.OPENROUTER_API_KEY!)
 
 const webSearchAgent = Machine
     .create<StateData>()
-    .addState(StateNode
-        .create<StateData>()
-        .setIdent("refine_and_extract")
-        .setPlaylist(p => p // Builder function allows complex types to be assembled!
-            .addTask(new TABasicTextInference("refine", client),
-                (state, outputs) => { // This function constructs the INPUT of the task from the state and outputs of previous tasks
-                    const input = state.input;
-                    const model = state.model ? state.model : "openai/gpt-5"
-                    const instructions = `You are a prompt refiner. Any prompts you receive, you will refine to improve LLM performance. Break down the prompt by Intent, Mood, and Instructions. Do NOT reply or answer the user's message! ONLY refine the prompt.`;
-                    return {
-                        inputText: input,
-                        model: model,
-                        instructions: instructions
-                    }
-                })
-            .addTask(new TABasicTextInference("extract_search_terms", client),
-                (state, outputs) => {
-                    const input = `Original request: ${state.input}\n\nRefined prompt: ${state.refinedInput}`;
-                    const model = state.model ? state.model : "openai/gpt-5"
-                    const instructions = `You will receive the original user request AND an LLM refined version of the prompt. Please use both to extract one short web search query that will retrieve useful results.`;
-                    return {
-                        inputText: input,
-                        model: model,
-                        instructions: instructions
-                    }
-                })
-            .finally((state, outputs) => { // The finally block allows the playlist to react to the last task and to modify state data before the run ends.
-                if (outputs.refine.success) {
-                    state.refinedInput = outputs.refine.data.text
-                } else {
-                    state.refinedInput = "Sorry, an error occurred: " + outputs.refine.error
-                }
-
-                if (outputs.extract_search_terms.success) {
-                    state.searchTerm = outputs.extract_search_terms.data.text
-                }
-            }))
-        .retryLimit(3) // Simple retry rule setters. Also includes .preventRetry() to disable retries entirely and .retryDelayMs(delayMs) to set the delay between retries. Default is infinite retries at 1000ms delay.
-        .addTransition({
-            to: "search_web", // Transitions refer to states by their ident.
-            condition: async (stateData: StateData) => stateData.searchTerm ? true : false,
-            weight: 2 // Weight determines the order in which transitions are tried. Higher weight = higher priority.
-        })
-        .addTransition({
-            to: "generate_response",
-            condition: async (stateData: StateData) => true,
-            weight: 1
-        }),
-        { initial: true } // The machine needs an initial state.
-    )
-    .addState(StateNode.create<StateData>()
-        .setIdent("search_web")
+    // Declare all states upfront for transition autocomplete
+    .withStates<"refine_and_extract" | "search_web" | "generate_response">()
+    .addState("refine_and_extract", node => node
         .setPlaylist(p => p
-            .addTask(new TASearchOnline("search"),
-            (state, outputs) => {
-                return {
-                    query: state.searchTerm! // We are sure that the searchTerm is not undefined because of the transition condition.
+            // Refine the user's input
+            .addTask(new TABasicTextInference("refine", client))
+            .input((state, outputs) => ({
+                inputText: state.input,
+                model: state.model ?? "openai/gpt-5.2",
+                instructions: `You are a prompt refiner. Refine the prompt to improve LLM performance. 
+                               Break down by Intent, Mood, and Instructions. Do NOT answer - ONLY refine.`
+            }))
+
+            // Extract search terms from refined input
+            .addTask(new TABasicTextInference("extract_search_terms", client))
+            .input((state, outputs) => ({
+                inputText: `Original: ${state.input}\n\nRefined: ${outputs.refine?.success ? outputs.refine.data.text : state.input}`,
+                model: state.model ?? "openai/gpt-5.2",
+                instructions: `Extract one short web search query from the user request and refined prompt.`
+            }))
+
+            // Update state with results
+            .finally((state, outputs) => {
+                if (outputs.refine?.success) {
+                    state.refinedInput = outputs.refine.data.text;
+                }
+                if (outputs.extract_search_terms?.success) {
+                    state.searchTerm = outputs.extract_search_terms.data.text;
                 }
             })
-            .finally((state, outputs) => {
-                if(outputs.search.success) {
-                    state.searchResults = outputs.search.data
-                }
+        )
+        .retryLimit(3) // Retry up to 3 times if no transition available
+        .addTransition({
+            to: "search_web",  // Autocomplete works!
+            condition: async (state) => !!state.searchTerm,
+            weight: 2 // Higher weight = higher priority
+        })
+        .addTransition({
+            to: "generate_response",  // Autocomplete works!
+            condition: async () => true, // Fallback
+            weight: 1
+        })
+    , { initial: true })
+
+    .addState("search_web", node => node
+        .setPlaylist(p => p
+            .addTask(new TASearchOnline("search"))
+            .input((state, outputs) => ({
+                query: state.searchTerm!
             }))
+            .finally((state, outputs) => {
+                if (outputs.search?.success) {
+                    state.searchResults = outputs.search.data;
+                }
+            })
+        )
         .addTransition({
             to: "generate_response",
-            condition: async (stateData: StateData) => true,
+            condition: async () => true,
             weight: 1
         })
     )
-    .addState(StateNode.create<StateData>()
-        .setIdent("generate_response")
+
+    .addState("generate_response", node => node
         .setPlaylist(p => p
-            .addTask(new TABasicTextInference("generate_response", client),
-            (state, outputs) => {
-                return {
-                    inputText: state.input,
-                    model: state.model ? state.model : "openai/gpt-5",
-                    instructions: "You will receive a user request and a refined prompt. There may also be search results. Based on the information, please write a professional response to the user's request."
-                }
-            })
+            .addTask(new TABasicTextInference("generate_response", client))
+            .input((state, outputs) => ({
+                inputText: state.input,
+                model: state.model ?? "openai/gpt-5.2",
+                instructions: `You received a user request and refined prompt. 
+                               ${state.searchResults ? 'Search results are also available.' : ''}
+                               Write a professional response.`
+            }))
             .finally((state, outputs) => {
-                if(outputs.generate_response.success) {
-                    state.finalResponse = outputs.generate_response.data.text
-                }
-                else {
-                    state.finalResponse = "Sorry, an error occurred: " + outputs.generate_response.error
-                }
+                state.finalResponse = outputs.generate_response?.success
+                    ? outputs.generate_response.data.text
+                    : "Sorry, an error occurred: " + (outputs.generate_response?.error ?? "unknown");
             })
-    ))
-    .addLogger(pino()) // If you add a logger to your machine,
-                       // it will call its info(), error(), debug(), fatal(), warn(), and trace() methods. Pino is recommended.
-    .finalize({ // Finalize your machine to make it ready to run. If you don't provide an ident, a uuidv4 will be generated for it.
-        ident: "web-search-agent"
-    })
+        )
+    )
+    .addLogger(pino()) // Optional: Add structured logging (pino recommended)
+    .finalize({ ident: "web-search-agent" });
 
-// ------------- EXECUTION: -------------
+// ------------- EXECUTION -------------
 
-const state: StateData = { // The state object is mutable and is passed to the machine and playlists.
+const state: StateData = {
     input: "How do I update AMD graphic driver?",
-    model: "openai/gpt-4o-mini"
-}
+    model: "openai/gpt-5.2-mini"
+};
 
-// The .run() method executes the machine until it reaches a terminal condition
-// based on the selected mode. For example, 'roundtrip' stops when it returns
-// to the initial state. The original state object is also mutated.
-const finalState = await webSearchAgent.run(state, { mode: 'roundtrip' })
+// Run until it completes a roundtrip to the initial state
+const finalState = await webSearchAgent.run(state, { mode: 'roundtrip' });
 
-console.log(finalState.finalResponse) // The final state is returned.
-// Or simply:
-console.log(state.finalResponse) // original state object is also mutated.
+console.log(finalState.finalResponse);
+// The original state object is also mutated:
+console.log(state.finalResponse);
 ```
 </details>
+
+## Type System
+
+Klonk's type system is designed to be minimal yet powerful. Here's what makes it tick:
+
+### Core Types
+
+| Type | Parameters | Purpose |
+|------|------------|---------|
+| `Task<Input, Output, Ident>` | Input shape, output shape, string literal ident | Base class for all tasks |
+| `Railroad<Output>` | Success data type | Discriminated union for success/error results |
+| `Playlist<AllOutputs, Source>` | Accumulated output map, source data type | Ordered task sequence with typed chaining |
+| `Trigger<Ident, Data>` | String literal ident, event payload type | Event source for workflows |
+| `Workflow<Events>` | Union of trigger event types | Connects triggers to playlists |
+| `Machine<StateData, AllStateIdents>` | Mutable state shape, union of state idents | Finite state machine with typed transitions |
+| `StateNode<StateData, Ident, AllStateIdents>` | State shape, this node's ident, all valid transition targets | Individual state with playlist and transitions |
+
+### How Output Chaining Works
+
+When you add a task to a playlist, Klonk extends the output type:
+
+```typescript
+// Start with empty outputs
+Playlist<{}, Source>
+    .addTask(new FetchTask("fetch")).input(...)
+// Now outputs include: { fetch: Railroad<FetchOutput> | null }
+Playlist<{ fetch: Railroad<FetchOutput> | null }, Source>
+    .addTask(new ParseTask("parse")).input(...)  
+// Now outputs include both: { fetch: ..., parse: Railroad<ParseOutput> | null }
+```
+
+The `| null` accounts for the possibility that a task was skipped (when its input builder returns `null`). This is why you'll use optional chaining like `outputs.fetch?.success` - TypeScript knows the output could be `null` if the task was skipped!
+
+This maps cleanly to Rust's types:
+| Rust | Klonk (TypeScript) |
+|------|-------------------|
+| `Option<T>` | `T \| null` |
+| `Result<T, E>` | `Railroad<T>` |
+| `Option<Result<T, E>>` | `Railroad<T> \| null` |

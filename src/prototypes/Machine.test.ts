@@ -16,13 +16,20 @@ const createLoggingPlaylist = (label: string) => {
   return playlist;
 };
 
-const createState = (ident: string, label: string) => {
-  const node = StateNode.create<StateData>().setIdent(ident);
+// Helper for tests that need a raw StateNode (internal testing)
+const createState = <const TIdent extends string>(ident: TIdent, label: string) => {
+  const node = new StateNode<StateData, TIdent>(ident);
   node.setPlaylist(createLoggingPlaylist(label));
   return node;
 };
 
-const getAllStates = (machine: Machine<StateData>) => (machine as any).getAllStates() as StateNode<StateData>[];
+// Helper to create a Machine bypassing withStates requirement (for internal tests)
+// Uses 'string' as the ident type to allow any ident
+const createMachine = () => {
+  return Machine.create<StateData>().withStates<string>();
+};
+
+const getAllStates = (machine: Machine<StateData, any>) => (machine as any).getAllStates() as StateNode<StateData>[];
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -32,8 +39,8 @@ afterEach(() => {
 
 describe("StateNode", () => {
   it("sorts transitions by weight and ignores throwing conditions", async () => {
-    const source = StateNode.create<StateData>().setIdent("source");
-    const target = StateNode.create<StateData>().setIdent("target");
+    const source = new StateNode<StateData, "source">("source");
+    const target = new StateNode<StateData, "target">("target");
 
     source.transitions = [
       {
@@ -55,7 +62,7 @@ describe("StateNode", () => {
   });
 
   it("supports configuring playlists via a builder function", async () => {
-    const node = StateNode.create<StateData>().setIdent("builder");
+    const node = new StateNode<StateData, "builder">("builder");
     const builder = vi.fn((p: Playlist<{}, StateData>) => {
       vi.spyOn(p, "run").mockResolvedValue({} as any);
       return p;
@@ -68,15 +75,15 @@ describe("StateNode", () => {
   });
 
   it("returns null when node has no transitions", () => {
-    const node = StateNode.create<StateData>().setIdent("solo");
+    const node = new StateNode<StateData, "solo">("solo");
     (node as any).transitions = undefined;
     expect(node.getByIdent("ghost")).toBeNull();
   });
 
   it("finds nested nodes by ident", () => {
-    const root = StateNode.create<StateData>().setIdent("root");
-    const child = StateNode.create<StateData>().setIdent("child");
-    const leaf = StateNode.create<StateData>().setIdent("leaf");
+    const root = new StateNode<StateData, "root">("root");
+    const child = new StateNode<StateData, "child">("child");
+    const leaf = new StateNode<StateData, "leaf">("leaf");
 
     root.transitions = [{ to: child, weight: 1, condition: async () => true }];
     child.transitions = [{ to: leaf, weight: 1, condition: async () => true }];
@@ -86,15 +93,15 @@ describe("StateNode", () => {
   });
 
   it("next returns null when there are no transitions", async () => {
-    const node = StateNode.create<StateData>().setIdent("lonely");
+    const node = new StateNode<StateData, "lonely">("lonely");
     (node as any).transitions = undefined;
     expect(await node.next({ log: [] })).toBeNull();
   });
 
   it("falls back to insertion order when transition weights are missing", async () => {
-    const node = StateNode.create<StateData>().setIdent("chooser");
-    const first = StateNode.create<StateData>().setIdent("first");
-    const second = StateNode.create<StateData>().setIdent("second");
+    const node = new StateNode<StateData, "chooser">("chooser");
+    const first = new StateNode<StateData, "first">("first");
+    const second = new StateNode<StateData, "second">("second");
     node.transitions = [
       { to: first, weight: undefined, condition: async () => false },
       { to: second, weight: undefined, condition: async () => true },
@@ -105,8 +112,8 @@ describe("StateNode", () => {
   });
 
   it("avoids infinite recursion when nodes form a cycle", () => {
-    const a = StateNode.create<StateData>().setIdent("a");
-    const b = StateNode.create<StateData>().setIdent("b");
+    const a = new StateNode<StateData, "a">("a");
+    const b = new StateNode<StateData, "b">("b");
     a.transitions = [{ to: b, weight: 1, condition: async () => false }];
     b.transitions = [{ to: a, weight: 1, condition: async () => false }];
 
@@ -114,9 +121,9 @@ describe("StateNode", () => {
   });
 
   it("prefers insertion order when weights are equal and multiple conditions are true", async () => {
-    const node = StateNode.create<StateData>().setIdent("chooser-eq");
-    const first = StateNode.create<StateData>().setIdent("first");
-    const second = StateNode.create<StateData>().setIdent("second");
+    const node = new StateNode<StateData, "chooser-eq">("chooser-eq");
+    const first = new StateNode<StateData, "first">("first");
+    const second = new StateNode<StateData, "second">("second");
 
     node.transitions = [
       { to: first, weight: 1, condition: async () => true },
@@ -130,45 +137,42 @@ describe("StateNode", () => {
 
 describe("Machine", () => {
   it("requires an initial state before finalizing", () => {
-    const machine = Machine.create<StateData>();
-    const lone = createState("lone", "lone");
-    machine.addState(lone);
+    const machine = createMachine();
+    machine.addState("lone", n => n.setPlaylist(createLoggingPlaylist("lone")));
 
     expect(() => machine.finalize()).toThrow("Cannot finalize a machine without an initial state or states to create.");
   });
 
   it("rejects duplicate state identifiers", () => {
-    const machine = Machine.create<StateData>();
-    const first = createState("dup", "first");
-    const second = createState("dup", "second");
+    const machine = createMachine();
 
-    machine.addState(first, { initial: true });
-    machine.addState(second);
+    machine.addState("dup", n => n.setPlaylist(createLoggingPlaylist("first")), { initial: true });
+    machine.addState("dup", n => n.setPlaylist(createLoggingPlaylist("second")));
 
     expect(() => machine.finalize()).toThrow("Duplicate state ident 'dup'.");
   });
 
   it("sets ident when provided", () => {
-    const machine = Machine.create<StateData>();
-    machine.addState(createState("only", "only"), { initial: true });
+    const machine = createMachine();
+    machine.addState("only", n => n.setPlaylist(createLoggingPlaylist("only")), { initial: true });
 
     machine.finalize({ ident: "custom-ident" });
     expect(machine.ident).toBe("custom-ident");
   });
 
   it("throws when a state is missing an ident during finalization", () => {
-    const machine = Machine.create<StateData>();
-    const unnamed = StateNode.create<StateData>();
-    machine.addState(unnamed, { initial: true });
+    const machine = createMachine();
+    machine.addState("", n => n, { initial: true });
 
     expect(() => machine.finalize()).toThrow("State missing ident.");
   });
 
   it("throws when a transition points to an unknown state", () => {
-    const machine = Machine.create<StateData>();
-    const start = createState("start", "start");
-    start.addTransition({ to: "ghost", condition: async () => true, weight: 1 });
-    machine.addState(start, { initial: true });
+    const machine = createMachine();
+    machine.addState("start", n => n
+      .setPlaylist(createLoggingPlaylist("start"))
+      .addTransition({ to: "ghost", condition: async () => true, weight: 1 })
+    , { initial: true });
 
     expect(() => machine.finalize()).toThrow("State 'ghost' not found.");
   });
@@ -188,41 +192,40 @@ describe("Machine", () => {
   // });
 
   it("throws if run is invoked before the machine is finalized", async () => {
-    const machine = Machine.create<StateData>();
-    machine.addState(createState("only", "only"), { initial: true });
+    const machine = createMachine();
+    machine.addState("only", n => n.setPlaylist(createLoggingPlaylist("only")), { initial: true });
     const stateData: StateData = { log: [] };
     await expect(machine.run(stateData, { mode: "any" })).rejects.toThrow("Cannot run a machine that is not finalized.");
   });
 
   it("throws if run is invoked without an initial state", async () => {
-    const machine = Machine.create<StateData>();
+    const machine = createMachine();
     machine.finalized = true;
     const stateData: StateData = { log: [] };
     await expect(machine.run(stateData, { mode: "any" })).rejects.toThrow("Cannot run a machine without an initial state.");
   });
 
   it("getAllStates returns an empty array when no initial state is set", () => {
-    const machine = Machine.create<StateData>();
+    const machine = createMachine();
     expect(getAllStates(machine)).toEqual([]);
   });
 
   it("getAllStates skips nodes without identifiers", () => {
-    const machine = Machine.create<StateData>();
-    const blank = StateNode.create<StateData>(); // ident remains empty
+    const machine = createMachine();
+    const blank = new StateNode<StateData, "">(""); // ident remains empty
     (blank as any).transitions = undefined;
     machine.initialState = blank;
     expect(getAllStates(machine)).toEqual([]);
   });
 
   it("getAllStates traverses unique reachable states", () => {
-    const start = createState("start", "start");
-    const loop = createState("loop", "loop");
-    start.addTransition({ to: "loop", condition: async () => true, weight: 1 });
-    // duplicate transition to exercise visited branch
-    start.addTransition({ to: "loop", condition: async () => true, weight: 2 });
-
-    const machine = Machine.create<StateData>();
-    machine.addState(start, { initial: true }).addState(loop);
+    const machine = createMachine();
+    machine.addState("start", n => n
+      .setPlaylist(createLoggingPlaylist("start"))
+      .addTransition({ to: "loop", condition: async () => true, weight: 1 })
+      .addTransition({ to: "loop", condition: async () => true, weight: 2 })
+    , { initial: true });
+    machine.addState("loop", n => n.setPlaylist(createLoggingPlaylist("loop")));
     machine.finalize({ ident: "graph" });
 
     const states = getAllStates(machine);
@@ -230,24 +233,24 @@ describe("Machine", () => {
   });
 
   it("getAllStates handles nodes whose transitions are undefined", () => {
-    const machine = Machine.create<StateData>();
-    const start = StateNode.create<StateData>().setIdent("start");
+    const machine = createMachine();
+    const start = new StateNode<StateData, "start">("start");
     (start as any).transitions = undefined;
     machine.initialState = start;
     expect(getAllStates(machine).map((state) => state.ident)).toEqual(["start"]);
   });
 
   it("runs playlists while transitioning until it reaches a leaf", async () => {
-    const start = createState("start", "start");
-    start.addTransition({ to: "middle", condition: async () => true, weight: 1 });
-
-    const middle = createState("middle", "middle");
-    middle.addTransition({ to: "end", condition: async () => true, weight: 1 });
-
-    const end = createState("end", "end");
-
-    const machine = Machine.create<StateData>();
-    machine.addState(start, { initial: true }).addState(middle).addState(end);
+    const machine = createMachine();
+    machine.addState("start", n => n
+      .setPlaylist(createLoggingPlaylist("start"))
+      .addTransition({ to: "middle", condition: async () => true, weight: 1 })
+    , { initial: true });
+    machine.addState("middle", n => n
+      .setPlaylist(createLoggingPlaylist("middle"))
+      .addTransition({ to: "end", condition: async () => true, weight: 1 })
+    );
+    machine.addState("end", n => n.setPlaylist(createLoggingPlaylist("end")));
     machine.finalize({ ident: "happy-path" });
 
     const stateData: StateData = { log: [] };
@@ -256,9 +259,8 @@ describe("Machine", () => {
   });
 
   it("completes immediately when the initial state has no transitions", async () => {
-    const lone = createState("lone", "lone");
-    const machine = Machine.create<StateData>();
-    machine.addState(lone, { initial: true });
+    const machine = createMachine();
+    machine.addState("lone", n => n.setPlaylist(createLoggingPlaylist("lone")), { initial: true });
     machine.finalize({ ident: "single" });
 
     const stateData: StateData = { log: [] };
@@ -267,13 +269,13 @@ describe("Machine", () => {
   });
 
   it("respects preventRetry when no transitions are available", async () => {
-    const start = createState("start", "start");
-    start.preventRetry();
-    start.addTransition({ to: "second", condition: async () => false, weight: 1 });
-    const second = createState("second", "second");
-
-    const machine = Machine.create<StateData>();
-    machine.addState(start, { initial: true }).addState(second);
+    const machine = createMachine();
+    machine.addState("start", n => n
+      .setPlaylist(createLoggingPlaylist("start"))
+      .preventRetry()
+      .addTransition({ to: "second", condition: async () => false, weight: 1 })
+    , { initial: true });
+    machine.addState("second", n => n.setPlaylist(createLoggingPlaylist("second")));
     machine.finalize({ ident: "no-retry" });
 
     const stateData: StateData = { log: [] };
@@ -282,17 +284,14 @@ describe("Machine", () => {
   });
 
   it("retries until a transition becomes available", async () => {
-    const start = createState("start", "start");
-    start.retryDelayMs(1).retryLimit(3);
-    start.addTransition({
-      to: "finish",
-      condition: async (state) => state.ready === true,
-      weight: 1,
-    });
-    const finish = createState("finish", "finish");
-
-    const machine = Machine.create<StateData>();
-    machine.addState(start, { initial: true }).addState(finish);
+    const machine = createMachine();
+    machine.addState("start", n => n
+      .setPlaylist(createLoggingPlaylist("start"))
+      .retryDelayMs(1)
+      .retryLimit(3)
+      .addTransition({ to: "finish", condition: async (state) => state.ready === true, weight: 1 })
+    , { initial: true });
+    machine.addState("finish", n => n.setPlaylist(createLoggingPlaylist("finish")));
     machine.finalize({ ident: "retry-success" });
 
     const stateData: StateData = { log: [], ready: false };
@@ -307,18 +306,14 @@ describe("Machine", () => {
   });
 
   it("stops once the retry limit is exhausted", async () => {
-    const start = createState("start", "start");
-    start.retryDelayMs(1).retryLimit(2);
-    start.addTransition({
-      to: "finish",
-      condition: async () => false,
-      weight: 1,
-    });
-
-    const finish = createState("finish", "finish");
-
-    const machine = Machine.create<StateData>();
-    machine.addState(start, { initial: true }).addState(finish);
+    const machine = createMachine();
+    machine.addState("start", n => n
+      .setPlaylist(createLoggingPlaylist("start"))
+      .retryDelayMs(1)
+      .retryLimit(2)
+      .addTransition({ to: "finish", condition: async () => false, weight: 1 })
+    , { initial: true });
+    machine.addState("finish", n => n.setPlaylist(createLoggingPlaylist("finish")));
     machine.finalize({ ident: "retry-limit" });
 
     const stateData: StateData = { log: [] };
@@ -330,15 +325,17 @@ describe("Machine", () => {
   });
 
   it("returns when a transition loops back to the initial state", async () => {
-    const start = createState("start", "start");
-    start.addTransition({ to: "middle", condition: async () => true, weight: 2 });
-    const middle = createState("middle", "middle");
-    middle.addTransition({ to: "start", condition: async () => true, weight: 1 });
-    const extra = createState("extra", "extra");
-    start.addTransition({ to: "extra", condition: async () => false, weight: 1 });
-
-    const machine = Machine.create<StateData>();
-    machine.addState(start, { initial: true }).addState(middle).addState(extra);
+    const machine = createMachine();
+    machine.addState("start", n => n
+      .setPlaylist(createLoggingPlaylist("start"))
+      .addTransition({ to: "middle", condition: async () => true, weight: 2 })
+      .addTransition({ to: "extra", condition: async () => false, weight: 1 })
+    , { initial: true });
+    machine.addState("middle", n => n
+      .setPlaylist(createLoggingPlaylist("middle"))
+      .addTransition({ to: "start", condition: async () => true, weight: 1 })
+    );
+    machine.addState("extra", n => n.setPlaylist(createLoggingPlaylist("extra")));
     machine.finalize({ ident: "loop" });
 
     const stateData: StateData = { log: [] };
@@ -373,18 +370,18 @@ describe("Machine", () => {
   // });
 
   it("stops and propagates errors when a task throws", async () => {
-    const machine = Machine.create<StateData>();
-    const start = createState("start", "start");
-    const throwingState = StateNode.create<StateData>().setIdent("throwing");
-    const playlist = new Playlist<{}, StateData>();
-    vi.spyOn(playlist, "run").mockImplementation(async () => {
+    const machine = createMachine();
+    const throwingPlaylist = new Playlist<{}, StateData>();
+    vi.spyOn(throwingPlaylist, "run").mockImplementation(async () => {
       throw new Error("Task failed!");
     });
-    throwingState.setPlaylist(playlist);
 
-    start.addTransition({ to: "throwing", condition: async () => true, weight: 1 });
-
-    machine.addState(start, { initial: true }).addState(throwingState).finalize();
+    machine.addState("start", n => n
+      .setPlaylist(createLoggingPlaylist("start"))
+      .addTransition({ to: "throwing", condition: async () => true, weight: 1 })
+    , { initial: true });
+    machine.addState("throwing", n => n.setPlaylist(throwingPlaylist));
+    machine.finalize();
 
     const stateData: StateData = { log: [] };
     await expect(machine.run(stateData, { mode: "any" })).rejects.toThrow("Task failed!");
@@ -425,7 +422,7 @@ describe("Machine", () => {
 
 describe("Machine logger injection", () => {
   it("addLogger is a no-op when no initial state is set", () => {
-    const machine = Machine.create<StateData>();
+    const machine = createMachine();
     const dummyLogger = {
       info: () => {},
       error: () => {},
@@ -438,8 +435,8 @@ describe("Machine logger injection", () => {
   });
 
   it("addLogger handles nodes whose transitions are undefined", () => {
-    const machine = Machine.create<StateData>();
-    const blank = StateNode.create<StateData>().setIdent("blank");
+    const machine = createMachine();
+    const blank = new StateNode<StateData, "blank">("blank");
     (blank as any).transitions = undefined;
     machine.initialState = blank;
 
@@ -457,15 +454,17 @@ describe("Machine logger injection", () => {
   });
 
   it("addLogger propagates to all reachable states after finalize", async () => {
-    const machine = Machine.create<StateData>();
-    const a = createState("a", "a");
-    const b = createState("b", "b");
-    a.addTransition({ to: "b", condition: async () => true, weight: 1 });
-    // duplicate transition to exercise visited duplicate path
-    a.addTransition({ to: "b", condition: async () => true, weight: 2 });
-    // self-loop to exercise false branch in traversal push condition
-    b.addTransition({ to: "b", condition: async () => true, weight: 1 });
-    machine.addState(a, { initial: true }).addState(b).finalize({ ident: "logger-test" });
+    const machine = createMachine();
+    machine.addState("a", n => n
+      .setPlaylist(createLoggingPlaylist("a"))
+      .addTransition({ to: "b", condition: async () => true, weight: 1 })
+      .addTransition({ to: "b", condition: async () => true, weight: 2 })
+    , { initial: true });
+    machine.addState("b", n => n
+      .setPlaylist(createLoggingPlaylist("b"))
+      .addTransition({ to: "b", condition: async () => true, weight: 1 })
+    );
+    machine.finalize({ ident: "logger-test" });
 
     const collected: any[] = [];
     const dummyLogger = {
@@ -489,58 +488,60 @@ describe("Machine logger injection", () => {
 describe("Machine 'run' method with options", () => {
   type RunTestStateData = { log: string[]; counter: number; goToLeaf: boolean };
 
-  // Creates a state that just logs its label
-  const createRunTestState = (ident: string, label: string) => {
-    const node = StateNode.create<RunTestStateData>().setIdent(ident);
+  // Creates a playlist that just logs its label
+  const createRunTestPlaylist = (label: string) => {
     const playlist = new Playlist<{}, RunTestStateData>();
     vi.spyOn(playlist, "run").mockImplementation(async (state) => {
       state.log.push(label);
       return {} as any;
     });
-    node.setPlaylist(playlist);
-    return node;
+    return playlist;
   };
 
-  // Creates a state that logs and increments a counter
-  const createIncrementingState = (ident: string, label: string) => {
-    const node = StateNode.create<RunTestStateData>().setIdent(ident);
+  // Creates a playlist that logs and increments a counter
+  const createIncrementingPlaylist = (label: string) => {
     const playlist = new Playlist<{}, RunTestStateData>();
     vi.spyOn(playlist, "run").mockImplementation(async (state) => {
       state.log.push(label);
       state.counter = (state.counter || 0) + 1;
       return {} as any;
     });
-    node.setPlaylist(playlist);
-    return node;
+    return playlist;
   };
 
-  let machine: Machine<RunTestStateData>;
+  // Helper to create a machine for run tests
+  const createRunTestMachine = () => {
+    return Machine.create<RunTestStateData>().withStates<string>();
+  };
+
+  let machine: Machine<RunTestStateData, string>;
 
   beforeEach(() => {
-    machine = Machine.create<RunTestStateData>();
-    const stateA = createRunTestState("A", "A");
-    const stateB = createIncrementingState("B", "B");
-    const stateC = createRunTestState("C", "C");
-    const stateD = createRunTestState("D", "D");
-    const stateE = createRunTestState("E", "E");
-    const stateF = createRunTestState("F", "F (leaf)");
-
-    stateA.addTransition({ to: "B", condition: async () => true, weight: 1 });
-    stateB.addTransition({ to: "C", condition: async () => true, weight: 1 });
-    stateC.addTransition({ to: "B", condition: async (state) => state.counter < 3, weight: 3 });
-    stateC.addTransition({ to: "F", condition: async (state) => state.counter >= 3 && state.goToLeaf, weight: 2 });
-    stateC.addTransition({ to: "D", condition: async (state) => state.counter >= 3 && !state.goToLeaf, weight: 1 });
-    stateD.addTransition({ to: "E", condition: async () => true, weight: 1 });
-    stateE.addTransition({ to: "A", condition: async () => true, weight: 1 });
-
-    machine
-      .addState(stateA, { initial: true })
-      .addState(stateB)
-      .addState(stateC)
-      .addState(stateD)
-      .addState(stateE)
-      .addState(stateF)
-      .finalize();
+    machine = createRunTestMachine();
+    machine.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 1 })
+    , { initial: true });
+    machine.addState("B", n => n
+      .setPlaylist(createIncrementingPlaylist("B"))
+      .addTransition({ to: "C", condition: async () => true, weight: 1 })
+    );
+    machine.addState("C", n => n
+      .setPlaylist(createRunTestPlaylist("C"))
+      .addTransition({ to: "B", condition: async (state) => state.counter < 3, weight: 3 })
+      .addTransition({ to: "F", condition: async (state) => state.counter >= 3 && state.goToLeaf, weight: 2 })
+      .addTransition({ to: "D", condition: async (state) => state.counter >= 3 && !state.goToLeaf, weight: 1 })
+    );
+    machine.addState("D", n => n
+      .setPlaylist(createRunTestPlaylist("D"))
+      .addTransition({ to: "E", condition: async () => true, weight: 1 })
+    );
+    machine.addState("E", n => n
+      .setPlaylist(createRunTestPlaylist("E"))
+      .addTransition({ to: "A", condition: async () => true, weight: 1 })
+    );
+    machine.addState("F", n => n.setPlaylist(createRunTestPlaylist("F (leaf)")));
+    machine.finalize();
   });
 
   it("mode: 'leaf' stops at a leaf node", async () => {
@@ -565,113 +566,126 @@ describe("Machine 'run' method with options", () => {
   });
 
   it("mode: 'any' stops on a leaf if that is the first terminal condition", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const stateA = createRunTestState("A", "A (leaf)");
-    machine.addState(stateA, { initial: true }).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n.setPlaylist(createRunTestPlaylist("A (leaf)")), { initial: true });
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    await machine.run(stateData, { mode: "any" });
+    await m.run(stateData, { mode: "any" });
     expect(stateData.log).toEqual(["A (leaf)"]);
   });
 
   it("mode: 'roundtrip' ignores a leaf node to complete the trip", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const stateA = createRunTestState("A", "A");
-    const stateB = createRunTestState("B", "B (leaf)"); // Will be ignored
-    stateA.addTransition({ to: "A", condition: async () => true, weight: 1 });
-    machine.addState(stateA, { initial: true }).addState(stateB).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "A", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n.setPlaylist(createRunTestPlaylist("B (leaf)")));
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    await machine.run(stateData, { mode: "roundtrip" });
+    await m.run(stateData, { mode: "roundtrip" });
     expect(stateData.log).toEqual(["A"]);
   });
 
   it("mode: 'leaf' ignores a roundtrip to stop at a leaf", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const stateA = createRunTestState("A", "A");
-    const stateB = createRunTestState("B", "B (leaf)");
-    stateA.addTransition({ to: "B", condition: async () => true, weight: 2 });
-    stateA.addTransition({ to: "A", condition: async () => true, weight: 1 }); // roundtrip path
-    machine.addState(stateA, { initial: true }).addState(stateB).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 2 })
+      .addTransition({ to: "A", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n.setPlaylist(createRunTestPlaylist("B (leaf)")));
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    await machine.run(stateData, { mode: "leaf" });
+    await m.run(stateData, { mode: "leaf" });
     expect(stateData.log).toEqual(["A", "B (leaf)"]);
   });
 
   it("mode: 'any' stops when all states are visited", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const stateA = createRunTestState("A", "A");
-    const stateB = createRunTestState("B", "B");
-    stateA.addTransition({ to: "B", condition: async () => true, weight: 1 });
-    machine.addState(stateA, { initial: true }).addState(stateB).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n.setPlaylist(createRunTestPlaylist("B")));
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    await machine.run(stateData, { mode: "any" });
+    await m.run(stateData, { mode: "any" });
     expect(stateData.log).toEqual(["A", "B"]);
   });
 
   it("mode: 'infinitely' does not stop at a leaf when retries are disabled", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const leaf = createRunTestState("leaf", "leaf").preventRetry();
-    machine.addState(leaf, { initial: true }).finalize();
+    const m = createRunTestMachine();
+    m.addState("leaf", n => n.setPlaylist(createRunTestPlaylist("leaf")).preventRetry(), { initial: true });
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    // Should not stop at the leaf check, but will stop because retries are disabled
-    await machine.run(stateData, { mode: "infinitely" });
+    await m.run(stateData, { mode: "infinitely" });
     expect(stateData.log).toEqual(["leaf"]);
   });
 
   it("mode: 'infinitely' does not stop on roundtrip", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const a = createRunTestState("A", "A");
-    const b = createRunTestState("B", "B");
-    a.addTransition({ to: "B", condition: async () => true, weight: 1 });
-    b.addTransition({ to: "A", condition: async () => true, weight: 1 });
-
-    machine.addState(a, { initial: true }).addState(b).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n
+      .setPlaylist(createRunTestPlaylist("B"))
+      .addTransition({ to: "A", condition: async () => true, weight: 1 })
+    );
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    await machine.run(stateData, { mode: "infinitely", stopAfter: 2, interval: 1 });
-    // We should have completed A -> B -> A (but stopAfter returns after second transition)
+    await m.run(stateData, { mode: "infinitely", stopAfter: 2, interval: 1 });
     expect(stateData.log[0]).toBe("A");
     expect(stateData.log[1]).toBe("B");
   });
 
   it("mode: 'any' continues loop without sleeping (non-infinitely path)", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const a = createRunTestState("A", "A");
-    const b = createRunTestState("B", "B");
-    const c = createRunTestState("C", "C");
-    const d = createRunTestState("D", "D");
-    a.addTransition({ to: "B", condition: async () => true, weight: 1 });
-    b.addTransition({ to: "C", condition: async () => true, weight: 1 });
-    c.addTransition({ to: "D", condition: async () => true, weight: 1 });
-
-    machine.addState(a, { initial: true }).addState(b).addState(c).addState(d).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n
+      .setPlaylist(createRunTestPlaylist("B"))
+      .addTransition({ to: "C", condition: async () => true, weight: 1 })
+    );
+    m.addState("C", n => n
+      .setPlaylist(createRunTestPlaylist("C"))
+      .addTransition({ to: "D", condition: async () => true, weight: 1 })
+    );
+    m.addState("D", n => n.setPlaylist(createRunTestPlaylist("D")));
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    await machine.run(stateData, { mode: "any" });
+    await m.run(stateData, { mode: "any" });
     expect(stateData.log).toEqual(["A", "B", "C", "D"]);
   });
 
   it("mode: 'infinitely' uses default interval when not provided", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const a = createRunTestState("A", "A");
-    const b = createRunTestState("B", "B");
-    a.addTransition({ to: "B", condition: async () => true, weight: 1 });
-    b.addTransition({ to: "A", condition: async () => true, weight: 1 });
-
-    machine.addState(a, { initial: true }).addState(b).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n
+      .setPlaylist(createRunTestPlaylist("B"))
+      .addTransition({ to: "A", condition: async () => true, weight: 1 })
+    );
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    const sleepSpy = vi.spyOn(machine as any, "sleep").mockResolvedValue(undefined);
+    const sleepSpy = vi.spyOn(m as any, "sleep").mockResolvedValue(undefined);
 
-    // With stopAfter counting states entered (including initial), use 3 to ensure a sleep occurs
-    await machine.run(stateData, { mode: "infinitely", stopAfter: 3 });
+    await m.run(stateData, { mode: "infinitely", stopAfter: 3 });
 
     expect(sleepSpy).toHaveBeenCalled();
-    // default interval is 1000ms
     expect(sleepSpy.mock.calls.some(([ms]) => ms === 1000)).toBe(true);
 
     sleepSpy.mockRestore();
@@ -686,9 +700,9 @@ describe("Machine 'run' method with options", () => {
   });
 
   it("stopAfter=0 stops before entering the initial state", async () => {
-    const m = Machine.create<RunTestStateData>();
-    const a = createRunTestState("A", "A");
-    m.addState(a, { initial: true }).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n.setPlaylist(createRunTestPlaylist("A")), { initial: true });
+    m.finalize();
 
     const data: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
     await m.run(data, { mode: "any", stopAfter: 0 });
@@ -696,12 +710,13 @@ describe("Machine 'run' method with options", () => {
   });
 
   it("stopAfter=1 stops right after entering the initial state", async () => {
-    const m = Machine.create<RunTestStateData>();
-    const a = createRunTestState("A", "A");
-    const b = createRunTestState("B", "B");
-    a.addTransition({ to: "B", condition: async () => true, weight: 1 });
-
-    m.addState(a, { initial: true }).addState(b).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n.setPlaylist(createRunTestPlaylist("B")));
+    m.finalize();
 
     const data: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
     await m.run(data, { mode: "any", stopAfter: 1 });
@@ -709,35 +724,39 @@ describe("Machine 'run' method with options", () => {
   });
 
   it("honors stopAfter inside the retry loop (no starvation)", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const a = createRunTestState("A", "A");
-    const b = createRunTestState("B", "B");
-    const c = createRunTestState("C", "C");
-
-    a.addTransition({ to: "B", condition: async () => true, weight: 1 });
-    b.addTransition({ to: "C", condition: async () => true, weight: 1 });
-    // C cannot transition anywhere, but has retry enabled by default
-    c.addTransition({ to: "A", condition: async () => false, weight: 1 });
-
-    machine.addState(a, { initial: true }).addState(b).addState(c).finalize();
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createRunTestPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n
+      .setPlaylist(createRunTestPlaylist("B"))
+      .addTransition({ to: "C", condition: async () => true, weight: 1 })
+    );
+    m.addState("C", n => n
+      .setPlaylist(createRunTestPlaylist("C"))
+      .addTransition({ to: "A", condition: async () => false, weight: 1 })
+    );
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    await machine.run(stateData, { mode: "infinitely", stopAfter: 2, interval: 1 });
-    // Counting states entered including initial; stop after entering the second state
+    await m.run(stateData, { mode: "infinitely", stopAfter: 2, interval: 1 });
     expect(stateData.log).toEqual(["A", "B"]);
   });
 
   it("treats maxRetries = 0 as zero allowed retries", async () => {
-    const machine = Machine.create<RunTestStateData>();
-    const start = createRunTestState("start", "start");
-    start.retryDelayMs(1).retryLimit(0);
-    start.addTransition({ to: "next", condition: async () => false, weight: 1 });
-    const next = createRunTestState("next", "next");
-
-    machine.addState(start, { initial: true }).addState(next).finalize();
+    const m = createRunTestMachine();
+    m.addState("start", n => n
+      .setPlaylist(createRunTestPlaylist("start"))
+      .retryDelayMs(1)
+      .retryLimit(0)
+      .addTransition({ to: "next", condition: async () => false, weight: 1 })
+    , { initial: true });
+    m.addState("next", n => n.setPlaylist(createRunTestPlaylist("next")));
+    m.finalize();
 
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
-    await machine.run(stateData, { mode: "any" });
+    await m.run(stateData, { mode: "any" });
     expect(stateData.log).toEqual(["start"]);
   });
 
