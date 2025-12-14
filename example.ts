@@ -8,7 +8,7 @@
  * 4. Use Playlists in a Workflow (trigger-based)
  */
 
-import { Task, Railroad, Playlist, Machine, StateNode, Workflow, Trigger, TriggerEvent } from "./src";
+import { Task, Railroad, Playlist, Machine, StateNode, Workflow, Trigger, TriggerEvent, unwrap, unwrapOr, unwrapOrElse, isOk, isErr } from "./src";
 
 // =============================================================================
 // TASK DEFINITIONS
@@ -147,6 +147,69 @@ class FlakyTask<TIdent extends string> extends Task<FlakyInput, FlakyOutput, TId
 }
 
 // =============================================================================
+// RAILROAD EXAMPLE - Rust-inspired Result Handling
+// =============================================================================
+
+/**
+ * Demonstrates the Railroad type and its helper functions.
+ * Railroad is Klonk's version of Rust's Result<T, E>.
+ */
+async function runRailroadExample() {
+    console.log("\n" + "=".repeat(60));
+    console.log("RAILROAD EXAMPLE: Rust-inspired Result Handling");
+    console.log("=".repeat(60) + "\n");
+
+    const fetchTask = new FetchTask("fetch");
+    
+    // Successful result
+    const successResult = await fetchTask.run({ url: "https://example.com" });
+    
+    // Using type guards (like Rust's match)
+    if (isOk(successResult)) {
+        console.log("✅ isOk() - Success! Status:", successResult.data.statusCode);
+    }
+    if (isErr(successResult)) {
+        console.log("❌ isErr() - Error:", successResult.error.message);
+    }
+
+    // Using unwrap (like Rust's .unwrap() - panics/throws on error)
+    try {
+        const data = unwrap(successResult);
+        console.log("✅ unwrap() - Got data:", data.statusCode);
+    } catch (e) {
+        console.log("❌ unwrap() threw:", e);
+    }
+
+    // Using unwrapOr (like Rust's .unwrap_or())
+    const dataOrDefault = unwrapOr(successResult, { statusCode: 0, body: "fallback" });
+    console.log("✅ unwrapOr() - Status:", dataOrDefault.statusCode);
+
+    // Simulating an error result
+    const errorResult: Railroad<FetchOutput> = {
+        success: false,
+        error: new Error("Network timeout")
+    };
+
+    // unwrapOr with error - returns default
+    const fallbackData = unwrapOr(errorResult, { statusCode: 0, body: "fallback" });
+    console.log("✅ unwrapOr(error) - Fallback status:", fallbackData.statusCode);
+
+    // unwrapOrElse - compute fallback from error (like Rust's .unwrap_or_else())
+    const computed = unwrapOrElse(errorResult, (err) => ({
+        statusCode: 500,
+        body: `Error occurred: ${err.message}`
+    }));
+    console.log("✅ unwrapOrElse() - Computed:", computed.body);
+
+    // unwrap on error - throws!
+    try {
+        unwrap(errorResult);
+    } catch (e) {
+        console.log("✅ unwrap(error) threw as expected:", (e as Error).message);
+    }
+}
+
+// =============================================================================
 // SKIP EXAMPLE - Conditionally Skipping Tasks
 // =============================================================================
 
@@ -168,8 +231,8 @@ const skipDemoPlaylist = new Playlist<{}, { shouldNotify: boolean; message: stri
         if (!source.shouldNotify) {
             return null;
         }
-        // Access previous output - note: log output could also be null now (type-safe!)
-        const logId = outputs.log?.success ? outputs.log.data.logId : "unknown";
+        // Access previous output using isOk helper (Rust-style!)
+        const logId = outputs.log && isOk(outputs.log) ? outputs.log.data.logId : "unknown";
         return {
             message: `${source.message} (logged as ${logId})`,
             level: "info"
@@ -181,8 +244,8 @@ const skipDemoPlaylist = new Playlist<{}, { shouldNotify: boolean; message: stri
         action: "process_complete",
         metadata: {
             notificationSent: outputs.notify !== null,
-            // Type-safe access: outputs.notify is Railroad<NotifyOutput> | null
-            notifiedAt: outputs.notify?.success ? outputs.notify.data.sentAt : null
+            // Type-safe access using isOk (Rust-style!)
+            notifiedAt: outputs.notify && isOk(outputs.notify) ? outputs.notify.data.sentAt : null
         }
     }));
 
@@ -206,32 +269,31 @@ const healthCheckMachine = Machine
             .input((state) => ({
                 url: state.urls[state.currentIndex]
             }))
-            // Parse the response
+            // Parse the response - using unwrapOr for clean fallback handling
             .addTask(new ParseHtmlTask("parse"))
             .input((state, outputs) => {
-                // Type-safe access to previous task output!
-                // Check for null (skipped) and success
-                if (outputs.fetch && outputs.fetch.success) {
-                    return { html: outputs.fetch.data.body };
-                }
-                return { html: "" };
+                // Using unwrapOr: get data or fallback (Rust-style!)
+                const fetchData = outputs.fetch 
+                    ? unwrapOr(outputs.fetch, { statusCode: 0, body: "" })
+                    : { statusCode: 0, body: "" };
+                return { html: fetchData.body };
             })
-            // Log the result
+            // Log the result - using isOk for cleaner checks
             .addTask(new LogTask("log"))
             .input((state, outputs) => ({
                 action: "url_checked",
                 metadata: {
                     url: state.urls[state.currentIndex],
-                    fetchSuccess: outputs.fetch?.success ?? false,
-                    parseSuccess: outputs.parse?.success ?? false,
-                    // Access nested data with full typing (check null and success)
-                    title: outputs.parse?.success ? outputs.parse.data.title : null,
-                    linkCount: outputs.parse?.success ? outputs.parse.data.links.length : 0
+                    fetchSuccess: outputs.fetch ? isOk(outputs.fetch) : false,
+                    parseSuccess: outputs.parse ? isOk(outputs.parse) : false,
+                    // Access nested data using isOk (Rust-style type narrowing!)
+                    title: outputs.parse && isOk(outputs.parse) ? outputs.parse.data.title : null,
+                    linkCount: outputs.parse && isOk(outputs.parse) ? outputs.parse.data.links.length : 0
                 }
             }))
             // Update state and notify
             .finally((state, outputs) => {
-                const healthy = (outputs.fetch?.success ?? false) && (outputs.parse?.success ?? false);
+                const healthy = (outputs.fetch ? isOk(outputs.fetch) : false) && (outputs.parse ? isOk(outputs.parse) : false);
                 state.results.push({
                     url: state.urls[state.currentIndex],
                     healthy
@@ -350,25 +412,25 @@ const dataPipeline = Workflow
             }
             return { url: "https://api.example.com/scheduled-data" };
         })
-        // Parse the response
+        // Parse the response - using isOk for cleaner checks
         .addTask(new ParseHtmlTask("parseData"))
         .input((event, outputs) => {
-            // Chain outputs from previous tasks (check null and success)
-            if (outputs.fetchData && outputs.fetchData.success) {
+            // Chain outputs using isOk (Rust-style!)
+            if (outputs.fetchData && isOk(outputs.fetchData)) {
                 return { html: outputs.fetchData.data.body };
             }
             return { html: "<empty/>" };
         })
-        // Send notification with combined results
+        // Send notification with combined results - using isOk throughout
         .addTask(new NotifyTask("notifyComplete"))
         .input((event, outputs) => {
-            const fetchOk = outputs.fetchData?.success ?? false;
-            const parseOk = outputs.parseData?.success ?? false;
+            const fetchOk = outputs.fetchData ? isOk(outputs.fetchData) : false;
+            const parseOk = outputs.parseData ? isOk(outputs.parseData) : false;
             
-            // Full access to all previous outputs (with null checks)
-            const logId = outputs.logEvent?.success ? outputs.logEvent.data.logId : "unknown";
-            const statusCode = outputs.fetchData?.success ? outputs.fetchData.data.statusCode : 0;
-            const title = outputs.parseData?.success ? outputs.parseData.data.title : "N/A";
+            // Full access using isOk for type narrowing (Rust-style!)
+            const logId = outputs.logEvent && isOk(outputs.logEvent) ? outputs.logEvent.data.logId : "unknown";
+            const statusCode = outputs.fetchData && isOk(outputs.fetchData) ? outputs.fetchData.data.statusCode : 0;
+            const title = outputs.parseData && isOk(outputs.parseData) ? outputs.parseData.data.title : "N/A";
 
             return {
                 message: `Pipeline complete [${logId}]: status=${statusCode}, title="${title}"`,
@@ -459,7 +521,7 @@ async function runRetryExample() {
         .input(() => ({ maxFailures: 2 }))  // Fail first 2 attempts
         .addTask(new NotifyTask("notify"))
         .input((_, outputs) => ({
-            message: `Task succeeded after ${outputs.flaky?.success ? outputs.flaky.data.attempts : '?'} attempts`,
+            message: `Task succeeded after ${outputs.flaky && isOk(outputs.flaky) ? outputs.flaky.data.attempts : '?'} attempts`,
             level: "info"
         }));
 
@@ -470,6 +532,7 @@ async function runRetryExample() {
 
 // Run all examples
 async function main() {
+    await runRailroadExample();
     await runSkipExample();
     await runRetryExample();
     await runMachineExample();

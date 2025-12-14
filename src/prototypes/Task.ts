@@ -17,6 +17,34 @@ export type Railroad<OutputType, ErrorType = Error> = {
     readonly error: ErrorType
 }
 
+/** Type guard: returns true if the Railroad is a success */
+export function isOk<T, E>(r: Railroad<T, E>): r is { success: true, data: T } {
+    return r.success === true;
+}
+
+/** Type guard: returns true if the Railroad is an error */
+export function isErr<T, E>(r: Railroad<T, E>): r is { success: false, error: E } {
+    return r.success === false;
+}
+
+/** Returns the data if success, throws the error if failure (like Rust's unwrap) */
+export function unwrap<T, E>(r: Railroad<T, E>): T {
+    if (r.success) return r.data;
+    throw r.error;
+}
+
+/** Returns the data if success, or the default value if failure */
+export function unwrapOr<T, E>(r: Railroad<T, E>, defaultValue: T): T {
+    if (r.success) return r.data;
+    return defaultValue;
+}
+
+/** Returns the data if success, or calls the function with the error if failure */
+export function unwrapOrElse<T, E>(r: Railroad<T, E>, fn: (error: E) => T): T {
+    if (r.success) return r.data;
+    return fn(r.error);
+}
+
 /**
  * Base class for all executable units in Klonk.
  * Implement `validateInput` for runtime checks and `run` for the actual work.
