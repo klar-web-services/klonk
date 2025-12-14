@@ -4,12 +4,16 @@ on:
   push:
   pull_request:
 
+permissions:
+  id-token: write # Required for OIDC
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
@@ -35,7 +39,7 @@ jobs:
     if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
@@ -49,12 +53,14 @@ jobs:
         run: bun run build
 
       - name: Setup Node.js for NPM
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+
+      # Ensure npm 11.5.1 or later is installed
+      - name: Update npm
+        run: npm install -g npm@latest
 
       - name: Publish to NPM
         run: npm publish --access=public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
