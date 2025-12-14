@@ -72,7 +72,10 @@ describe("Workflow", () => {
 
     const [eventArg, outputsArg] = await callbackPromise;
     expect(trigger.start).toHaveBeenCalledTimes(1);
-    expect(capturedPlaylist!.run).toHaveBeenCalledWith(eventArg);
+    expect(capturedPlaylist!.run).toHaveBeenCalledWith(eventArg, {
+      retryDelay: 1000,
+      maxRetries: false
+    });
     expect(eventArg).toEqual<TriggerEvent<Ident, Payload>>({
       triggerIdent: "workflow-trigger",
       data: { value: 42 },

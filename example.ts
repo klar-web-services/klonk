@@ -112,6 +112,40 @@ class LogTask<TIdent extends string> extends Task<LogInput, LogOutput, TIdent> {
     }
 }
 
+/**
+ * Task 5: A flaky task that fails a few times before succeeding
+ * Demonstrates the automatic retry behavior
+ */
+type FlakyInput = { maxFailures: number };
+type FlakyOutput = { attempts: number };
+
+let flakyAttempts = 0;
+
+class FlakyTask<TIdent extends string> extends Task<FlakyInput, FlakyOutput, TIdent> {
+    constructor(ident: TIdent) {
+        super(ident);
+    }
+
+    async validateInput(): Promise<boolean> {
+        return true;
+    }
+
+    async run(input: FlakyInput): Promise<Railroad<FlakyOutput>> {
+        flakyAttempts++;
+        if (flakyAttempts <= input.maxFailures) {
+            console.log(`[FlakyTask] Attempt ${flakyAttempts} failed (will retry automatically)`);
+            return {
+                success: false,
+                error: new Error(`Simulated failure ${flakyAttempts}/${input.maxFailures}`)
+            };
+        }
+        console.log(`[FlakyTask] Attempt ${flakyAttempts} succeeded!`);
+        const result = { attempts: flakyAttempts };
+        flakyAttempts = 0; // Reset for next demo
+        return { success: true, data: result };
+    }
+}
+
 // =============================================================================
 // SKIP EXAMPLE - Conditionally Skipping Tasks
 // =============================================================================
@@ -289,6 +323,8 @@ const dataPipeline = Workflow
     .create()
     .addTrigger(webhookTrigger)
     .addTrigger(scheduleTrigger)
+    .retryDelayMs(500)   // Retry failed tasks every 500ms
+    .retryLimit(3)       // Give up after 3 retries
     .setPlaylist(p => p
         // Log the incoming event
         .addTask(new LogTask("logEvent"))
@@ -412,9 +448,30 @@ async function runSkipExample() {
     console.log("Notify output:", result2.notify); // Will be null
 }
 
+async function runRetryExample() {
+    console.log("\n" + "=".repeat(60));
+    console.log("RETRY EXAMPLE: Automatic Task Retries");
+    console.log("=".repeat(60) + "\n");
+
+    // Create a playlist with a flaky task - it will fail twice then succeed
+    const retryPlaylist = new Playlist<{}, {}>()
+        .addTask(new FlakyTask("flaky"))
+        .input(() => ({ maxFailures: 2 }))  // Fail first 2 attempts
+        .addTask(new NotifyTask("notify"))
+        .input((_, outputs) => ({
+            message: `Task succeeded after ${outputs.flaky?.success ? outputs.flaky.data.attempts : '?'} attempts`,
+            level: "info"
+        }));
+
+    // Run with retry settings: 100ms delay, max 5 retries
+    console.log("Running playlist with retries enabled (100ms delay, max 5 retries)...\n");
+    await retryPlaylist.run({}, { retryDelay: 100, maxRetries: 5 });
+}
+
 // Run all examples
 async function main() {
     await runSkipExample();
+    await runRetryExample();
     await runMachineExample();
     await runWorkflowExample();
     

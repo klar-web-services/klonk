@@ -9,6 +9,16 @@ interface TaskBundle {
 }
 
 /**
+ * Options for controlling task retry behavior during playlist execution.
+ */
+export type PlaylistRunOptions = {
+    /** Delay in ms between retries, or false to disable retries (fail immediately on task failure). */
+    retryDelay?: number | false
+    /** Maximum number of retries per task, or false for unlimited retries. */
+    maxRetries?: number | false
+}
+
+/**
  * Returned by `Playlist.addTask()` - you must call `.input()` to provide the task's input builder.
  * 
  * If you see this type in an error message, it means you forgot to call `.input()` after `.addTask()`.
@@ -119,15 +129,29 @@ export class Playlist<
     }
 
     /**
+     * Sleep helper for retry delays.
+     */
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
      * Execute all tasks in order, building each task's input via its builder
      * and storing each result under the task's ident in the outputs map.
      * If a builder returns `null`, the task is skipped and its output is `null`.
      * If a task's `validateInput` returns false, execution stops with an error.
+     * 
+     * When a task fails (`success: false`):
+     * - If `retryDelay` is false, throws immediately
+     * - Otherwise, retries after `retryDelay` ms until success or `maxRetries` exhausted
+     * - If `maxRetries` is exhausted, throws an error
      *
      * @param source - The source object for this run (e.g., trigger event or machine state).
+     * @param options - Optional retry settings for failed tasks.
      * @returns The aggregated, strongly-typed outputs map.
      */
-    async run(source: SourceType): Promise<AllOutputTypes> {
+    async run(source: SourceType, options: PlaylistRunOptions = {}): Promise<AllOutputTypes> {
+        const { retryDelay = 1000, maxRetries = false } = options;
         const outputs: Record<string, any> = {};
     
         for (const bundle of this.bundles) {
@@ -144,7 +168,30 @@ export class Playlist<
                 throw new Error(`Input validation failed for task '${bundle.task.ident}'`);
             }
 
-            const result = await bundle.task.run(input);
+            let result = await bundle.task.run(input);
+            
+            // Retry logic for failed tasks
+            if (!result.success) {
+                // If retries are disabled, fail immediately
+                if (retryDelay === false) {
+                    throw result.error ?? new Error(`Task '${bundle.task.ident}' failed and retries are disabled`);
+                }
+                
+                let retries = 0;
+                while (!result.success) {
+                    // Check if we've exhausted retries
+                    if (maxRetries !== false && retries >= maxRetries) {
+                        throw result.error ?? new Error(`Task '${bundle.task.ident}' failed after ${retries} retries`);
+                    }
+                    
+                    await this.sleep(retryDelay);
+                    retries++;
+                    
+                    // Re-run the task (input might depend on outputs, but for retries we use same input)
+                    result = await bundle.task.run(input);
+                }
+            }
+            
             outputs[bundle.task.ident] = result;
         }
         if (this.finalizer) {

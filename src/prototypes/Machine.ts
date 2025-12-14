@@ -459,7 +459,10 @@ export class Machine<TStateData, AllStateIdents extends string = never> {
 
         let current = this.initialState;
         logger?.info({ phase: 'progress', state: current.ident }, 'Set initial state. Running playlist.')
-        await current.playlist.run(stateData);
+        await current.playlist.run(stateData, {
+            retryDelay: current.retry,
+            maxRetries: current.maxRetries
+        });
         transitionsCount = 1;
         visitedIdents.add(current.ident);
 
@@ -518,7 +521,10 @@ export class Machine<TStateData, AllStateIdents extends string = never> {
 
             logger?.info({ phase: 'progress', from: current.ident, to: resolvedNext.ident }, 'Transitioning state.')
             current = resolvedNext;
-            await current.playlist.run(stateData);
+            await current.playlist.run(stateData, {
+                retryDelay: current.retry,
+                maxRetries: current.maxRetries
+            });
             visitedIdents.add(current.ident);
             transitionsCount++;
 

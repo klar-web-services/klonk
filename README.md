@@ -90,6 +90,32 @@ When a task is skipped:
 
 This gives you Rust-like `Option` semantics using TypeScript's native `null` - no extra types needed!
 
+#### Task Retries
+
+When a task fails (`success: false`), it can be automatically retried. Retry behavior is configured on the `Machine` state or `Workflow`:
+
+```typescript
+// On a Machine state:
+Machine.create<MyState>()
+    .addState("fetch-data", node => node
+        .setPlaylist(p => p.addTask(...))
+        .retryDelayMs(500)   // Retry every 500ms
+        .retryLimit(3)       // Max 3 retries, then throw
+    )
+
+// On a Workflow:
+Workflow.create()
+    .addTrigger(myTrigger)
+    .retryDelayMs(1000)      // Retry every 1s (default)
+    .retryLimit(5)           // Max 5 retries
+    .setPlaylist(p => p.addTask(...))
+
+// Disable retries entirely:
+node.preventRetry()  // Task failures throw immediately
+```
+
+Default behavior: infinite retries at 1000ms delay. Use `.preventRetry()` to fail fast, or `.retryLimit(n)` to cap attempts.
+
 ### Trigger
 
 A `Trigger` is what kicks off a `Workflow`. It's an event source. Klonk can be extended with triggers for anything: file system events, webhooks, new database entries, messages in a queue, etc.
@@ -116,7 +142,7 @@ Machine.create<MyStateData>()
 Each state has:
 1. A `Playlist` that runs when the machine enters that state.
 2. A set of conditional `Transitions` to other states (with autocomplete!).
-3. Retry rules for when a transition fails to resolve.
+3. Retry rules for failed tasks and when no transition is available.
 
 The `Machine` carries a mutable `stateData` object that can be read from and written to by playlists and transition conditions throughout its execution.
 
@@ -128,7 +154,8 @@ The `Machine` carries a mutable `stateData` object that can be read from and wri
 
 Notes:
 - `stopAfter` counts states entered, including the initial state. For example, `stopAfter: 1` will run the initial state's playlist once and then stop; `stopAfter: 0` stops before entering the initial state.
-- Retries are independent of `stopAfter`. A state can retry its transition condition (with optional delay) without affecting the `stopAfter` count until a state transition actually occurs.
+- Transition retries are independent of `stopAfter`. A state can retry its transition condition (with optional delay) without affecting the `stopAfter` count until a state transition actually occurs.
+- Task retries use the same settings as transition retries. If a task fails and retries are enabled, it will retry until success or the limit is reached.
 
 ## Features
 

@@ -1,4 +1,4 @@
-import { Playlist } from "./Playlist"
+import { Playlist, type PlaylistRunOptions } from "./Playlist"
 import { Trigger, type TriggerEvent } from "./Trigger"
 
 /**
@@ -7,6 +7,7 @@ import { Trigger, type TriggerEvent } from "./Trigger"
  *
  * - Add triggers with `addTrigger`.
  * - Configure the playlist using `setPlaylist(p => p.addTask(...))`.
+ * - Configure retry behavior with `retryDelayMs`, `retryLimit`, or `preventRetry`.
  * - Start polling with `start`, optionally receiving a callback when a run completes.
  *
  * See README Code Examples for building a full workflow.
@@ -16,10 +17,19 @@ import { Trigger, type TriggerEvent } from "./Trigger"
 export class Workflow<AllTriggerEvents extends TriggerEvent<string, any>> {
     playlist: Playlist<any, AllTriggerEvents> | null;
     triggers: Trigger<string, any>[];
+    retry: false | number;
+    maxRetries: false | number;
 
-    constructor(triggers: Trigger<string, any>[], playlist: Playlist<any, AllTriggerEvents> | null) {
+    constructor(
+        triggers: Trigger<string, any>[], 
+        playlist: Playlist<any, AllTriggerEvents> | null,
+        retry: false | number = 1000,
+        maxRetries: false | number = false
+    ) {
         this.triggers = triggers;
         this.playlist = playlist;
+        this.retry = retry;
+        this.maxRetries = maxRetries;
     }
 
     /**
@@ -36,7 +46,37 @@ export class Workflow<AllTriggerEvents extends TriggerEvent<string, any>> {
     ): Workflow<AllTriggerEvents | TriggerEvent<TIdent, TData>> {
         const newTriggers = [...this.triggers, trigger];
         const newPlaylist = this.playlist as Playlist<any, AllTriggerEvents | TriggerEvent<TIdent, TData>> | null;
-        return new Workflow(newTriggers, newPlaylist)
+        return new Workflow(newTriggers, newPlaylist, this.retry, this.maxRetries)
+    }
+
+    /**
+     * Disable retry behavior for failed tasks. Tasks that fail will throw immediately.
+     *
+     * @returns This workflow for chaining.
+     */
+    preventRetry(): Workflow<AllTriggerEvents> {
+        return new Workflow(this.triggers, this.playlist, false, this.maxRetries);
+    }
+
+    /**
+     * Set the delay between retry attempts for failed tasks.
+     *
+     * @param delayMs - Delay in milliseconds between retries.
+     * @returns This workflow for chaining.
+     */
+    retryDelayMs(delayMs: number): Workflow<AllTriggerEvents> {
+        return new Workflow(this.triggers, this.playlist, delayMs, this.maxRetries);
+    }
+
+    /**
+     * Set the maximum number of retries for failed tasks.
+     * Use `preventRetry()` to disable retries entirely.
+     *
+     * @param maxRetries - Maximum number of retry attempts before throwing.
+     * @returns This workflow for chaining.
+     */
+    retryLimit(maxRetries: number): Workflow<AllTriggerEvents> {
+        return new Workflow(this.triggers, this.playlist, this.retry, maxRetries);
     }
 
     /**
@@ -51,7 +91,7 @@ export class Workflow<AllTriggerEvents extends TriggerEvent<string, any>> {
     ): Workflow<AllTriggerEvents> {
         const initialPlaylist = new Playlist<{}, AllTriggerEvents>();
         const finalPlaylist = builder(initialPlaylist);
-        return new Workflow(this.triggers, finalPlaylist);
+        return new Workflow(this.triggers, finalPlaylist, this.retry, this.maxRetries);
     }
 
     /**
@@ -74,12 +114,17 @@ export class Workflow<AllTriggerEvents extends TriggerEvent<string, any>> {
             await trigger.start();
         }
 
+        const runOptions: PlaylistRunOptions = {
+            retryDelay: this.retry,
+            maxRetries: this.maxRetries
+        };
+
         const runTick = async () => {
             for (const trigger of this.triggers) {
                 const event = trigger.poll();
                 if (event) {
                     try {
-                        const outputs = await this.playlist!.run(event as AllTriggerEvents);
+                        const outputs = await this.playlist!.run(event as AllTriggerEvents, runOptions);
                         if (callback) {
                             callback(event as AllTriggerEvents, outputs);
                         }

@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { Playlist } from "./Playlist";
 import { Task, type Railroad } from "./Task";
+
+// Helper to control when a flaky task succeeds
+let flakyAttempts = 0;
 
 type Source = { start: number };
 
@@ -58,7 +61,48 @@ class RejectingTask extends Task<ValidationInput, ValidationOutput, ValidationId
   }
 }
 
+type FlakyIdent = "flaky";
+
+class FlakyTask extends Task<{ failUntilAttempt: number }, { result: string }, FlakyIdent> {
+  constructor() {
+    super("flaky");
+  }
+
+  async validateInput(): Promise<boolean> {
+    return true;
+  }
+
+  async run(input: { failUntilAttempt: number }): Promise<Railroad<{ result: string }>> {
+    flakyAttempts++;
+    if (flakyAttempts < input.failUntilAttempt) {
+      return { success: false, error: new Error(`Attempt ${flakyAttempts} failed`) };
+    }
+    return { success: true, data: { result: `Succeeded on attempt ${flakyAttempts}` } };
+  }
+}
+
+class AlwaysFailingTask extends Task<{}, { result: string }, "failing"> {
+  constructor() {
+    super("failing");
+  }
+
+  async validateInput(): Promise<boolean> {
+    return true;
+  }
+
+  async run(): Promise<Railroad<{ result: string }>> {
+    return { success: false, error: new Error("Always fails") };
+  }
+}
+
 describe("Playlist", () => {
+  beforeEach(() => {
+    flakyAttempts = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it("chains tasks immutably and exposes prior outputs to builders", async () => {
     const base = new Playlist<{}, Source>();
     const withDouble = base
@@ -153,5 +197,59 @@ describe("Playlist", () => {
     if (resultNegative.increment !== null && resultNegative.increment.success) {
       expect(resultNegative.increment.data.incremented).toBe(1); // 0 + 1
     }
+  });
+
+  it("retries a failed task until it succeeds", async () => {
+    const playlist = new Playlist<{}, Source>()
+      .addTask(new FlakyTask())
+      .input(() => ({ failUntilAttempt: 3 })); // Fail first 2 attempts
+
+    const sleepSpy = vi.spyOn(playlist as any, "sleep").mockResolvedValue(undefined);
+    
+    const result = await playlist.run({ start: 1 }, { retryDelay: 100 });
+    
+    expect(flakyAttempts).toBe(3); // Initial + 2 retries
+    expect(result.flaky?.success).toBe(true);
+    expect(sleepSpy).toHaveBeenCalledTimes(2);
+    expect(sleepSpy).toHaveBeenCalledWith(100);
+  });
+
+  it("throws immediately when retryDelay is false (preventRetry)", async () => {
+    const playlist = new Playlist<{}, Source>()
+      .addTask(new AlwaysFailingTask())
+      .input(() => ({}));
+
+    await expect(
+      playlist.run({ start: 1 }, { retryDelay: false })
+    ).rejects.toThrow("Always fails");
+    
+    expect(flakyAttempts).toBe(0); // AlwaysFailingTask doesn't use flakyAttempts
+  });
+
+  it("throws after maxRetries is exhausted", async () => {
+    const playlist = new Playlist<{}, Source>()
+      .addTask(new AlwaysFailingTask())
+      .input(() => ({}));
+
+    const sleepSpy = vi.spyOn(playlist as any, "sleep").mockResolvedValue(undefined);
+
+    await expect(
+      playlist.run({ start: 1 }, { retryDelay: 50, maxRetries: 3 })
+    ).rejects.toThrow("Always fails");
+    
+    expect(sleepSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses default retry settings (infinite retries at 1000ms) when not specified", async () => {
+    const playlist = new Playlist<{}, Source>()
+      .addTask(new FlakyTask())
+      .input(() => ({ failUntilAttempt: 2 })); // Fail first attempt only
+
+    const sleepSpy = vi.spyOn(playlist as any, "sleep").mockResolvedValue(undefined);
+    
+    const result = await playlist.run({ start: 1 }); // No options = defaults
+    
+    expect(result.flaky?.success).toBe(true);
+    expect(sleepSpy).toHaveBeenCalledWith(1000); // Default delay
   });
 });

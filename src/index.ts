@@ -1,6 +1,6 @@
 // Export core components
 export { Workflow } from './prototypes/Workflow';
-export { Playlist } from './prototypes/Playlist';
+export { Playlist, type PlaylistRunOptions } from './prototypes/Playlist';
 export { Task, type Railroad } from './prototypes/Task';
 export { Trigger, type TriggerEvent } from './prototypes/Trigger';
 export { Machine, StateNode, type RunOptions } from './prototypes/Machine';
