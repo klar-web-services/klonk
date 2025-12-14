@@ -510,7 +510,7 @@ export class Machine<TStateData, AllStateIdents extends string = never> {
             const resolvedNext = next!;
 
             if (resolvedNext === this.initialState) {
-                if (options.mode !== 'infinitely') {
+                if (options.mode === 'roundtrip' || options.mode === 'any') {
                     logger?.info({ phase: 'end', reason: 'roundtrip' }, 'Stop condition met.')
                     return stateData;
                 }

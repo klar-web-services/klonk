@@ -324,7 +324,7 @@ describe("Machine", () => {
     sleepSpy.mockRestore();
   });
 
-  it("returns when a transition loops back to the initial state", async () => {
+  it("returns when a transition loops back to the initial state (roundtrip mode)", async () => {
     const machine = createMachine();
     machine.addState("start", n => n
       .setPlaylist(createLoggingPlaylist("start"))
@@ -339,7 +339,7 @@ describe("Machine", () => {
     machine.finalize({ ident: "loop" });
 
     const stateData: StateData = { log: [] };
-    await machine.run(stateData, { mode: "any" });
+    await machine.run(stateData, { mode: "roundtrip" });
     expect(stateData.log).toEqual(["start", "middle"]);
   });
 
@@ -558,9 +558,10 @@ describe("Machine 'run' method with options", () => {
     expect(stateData.counter).toBe(3);
   });
 
-  it("mode: 'any' stops on roundtrip for a looping machine", async () => {
+  it("mode: 'any' stops on roundtrip (any terminal condition)", async () => {
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
     await machine.run(stateData, { mode: "any" });
+    // 'any' mode stops on ANY terminal condition, including roundtrip
     expect(stateData.log).toEqual(["A", "B", "C", "B", "C", "B", "C", "D", "E"]);
     expect(stateData.counter).toBe(3);
   });
@@ -602,6 +603,30 @@ describe("Machine 'run' method with options", () => {
     const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
     await m.run(stateData, { mode: "leaf" });
     expect(stateData.log).toEqual(["A", "B (leaf)"]);
+  });
+
+  it("mode: 'leaf' continues through roundtrip to reach leaf state", async () => {
+    // This test verifies the fix: leaf mode should NOT stop on roundtrip
+    // Machine loops A -> B -> A (roundtrip!) -> B -> leaf after counter >= 2
+    const m = createRunTestMachine();
+    m.addState("A", n => n
+      .setPlaylist(createIncrementingPlaylist("A"))
+      .addTransition({ to: "B", condition: async () => true, weight: 1 })
+    , { initial: true });
+    m.addState("B", n => n
+      .setPlaylist(createRunTestPlaylist("B"))
+      .addTransition({ to: "leaf", condition: async (state) => state.counter >= 2, weight: 2 })
+      .addTransition({ to: "A", condition: async () => true, weight: 1 })
+    );
+    m.addState("leaf", n => n.setPlaylist(createRunTestPlaylist("leaf")));
+    m.finalize();
+
+    const stateData: RunTestStateData = { log: [], counter: 0, goToLeaf: false };
+    await m.run(stateData, { mode: "leaf" });
+    // Path: A(counter=1) -> B -> A(counter=2, roundtrip!) -> B -> leaf
+    // Before the fix, this would stop at ["A", "B"] due to roundtrip termination
+    expect(stateData.log).toEqual(["A", "B", "A", "B", "leaf"]);
+    expect(stateData.counter).toBe(2);
   });
 
   it("mode: 'any' stops when all states are visited", async () => {
