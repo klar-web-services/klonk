@@ -20,9 +20,8 @@
 
 ## Introduction
 
-Klonk is a code-first, type-safe automation engine designed with developer experience as a top priority. It provides powerful, composable primitives to build complex workflows and state machines with world-class autocomplete and type inference. If you've ever wanted to build event-driven automations or a stateful agent, but in code, with all the benefits of TypeScript, Klonk is for you.
+Klonk is a code-first, type-safe automation engine designed with developer experience as a top priority. It provides powerful, composable primitives to build complex workflows and state machines with excellent autocomplete and type inference. If you've ever wanted to build event-driven automations or a stateful agent, but in code, with all the benefits of TypeScript, Klonk is for you.
 
-![Code](./.github/assets/blurry.png)
 ![Skip to code examples ->](https://github.com/klar-web-services/klonk?tab=readme-ov-file#code-examples)
 
 The two main features are **Workflows** and **Machines**.
@@ -37,6 +36,95 @@ bun add @fkws/klonk
 # or
 npm i @fkws/klonk
 ```
+
+### Compatibility
+
+| Requirement | Support |
+|-------------|---------|
+| **Runtimes** | Node.js 18+, Bun 1.0+, Deno (via npm specifier, best-effort) |
+| **Module** | ESM (native) and CJS (via bundled `/dist`) |
+| **TypeScript** | 5.0+ (required for full type inference) |
+| **Dependencies** | Zero runtime dependencies |
+
+**Status:** Pre-1.0, API may change between minor versions. Aiming for stability by 1.0.
+
+## Quickstart
+
+Copy-paste this to see Klonk in action. One trigger, two tasks, fully typed outputs:
+
+```typescript
+import { Task, Trigger, Workflow, Railroad, isOk } from "@fkws/klonk";
+
+// 1. Define two simple tasks
+class FetchUser<I extends string> extends Task<{ userId: string }, { name: string; email: string }, I> {
+  async validateInput(input: { userId: string }) { return !!input.userId; }
+  async run(input: { userId: string }): Promise<Railroad<{ name: string; email: string }>> {
+    if (input.userId !== "123") return { success: false, error: new Error("User not found") };
+    return { success: true, data: { name: "Alice", email: "alice@example.com" } };
+  }
+}
+
+class SendEmail<I extends string> extends Task<{ to: string; subject: string }, { sent: boolean }, I> {
+  async validateInput(input: { to: string; subject: string }) { return !!input.to; }
+  async run(input: { to: string; subject: string }): Promise<Railroad<{ sent: boolean }>> {
+    console.log(`📧 Sending "${input.subject}" to ${input.to}`);
+    return { success: true, data: { sent: true } };
+  }
+}
+
+// 2. Create a trigger (fires once with a userId)
+class ManualTrigger<I extends string> extends Trigger<I, { userId: string }> {
+  async start() { this.pushEvent({ userId: "123" }); }
+  async stop() {}
+}
+
+// 3. Wire it up: trigger → playlist with typed outputs
+const workflow = Workflow.create()
+  .addTrigger(new ManualTrigger("manual"))
+  .setPlaylist(p => p
+    .addTask(new FetchUser("fetch-user"))
+    .input((source) => ({ userId: source.data.userId }))  // ← source.data is typed!
+
+    .addTask(new SendEmail("send-email"))
+    .input((source, outputs) => {
+      // outputs["fetch-user"] is typed as Railroad<{ name, email }> | null
+      const user = outputs["fetch-user"];
+      if (!user || !isOk(user)) return null;  // skip if failed
+      return { to: user.data.email, subject: `Welcome, ${user.data.name}!` };
+    })
+  );
+
+workflow.start({ callback: (src, out) => console.log("✅ Done!", out) });
+```
+
+**What you just saw:**
+- `source.data.userId` — typed from the trigger
+- `outputs["fetch-user"]` — typed by the task's ident string literal
+- `user.data.email` — narrowed after `isOk()` check
+
+## TypeScript Magic Moment
+
+Klonk's type inference isn't marketing—here's proof:
+
+```typescript
+import { Machine } from "@fkws/klonk";
+
+// Declare states upfront → autocomplete for ALL transitions
+const machine = Machine.create<{ count: number }>()
+  .withStates<"idle" | "processing" | "done">()  // ← These drive autocomplete
+  .addState("idle", node => node
+    .setPlaylist(p => p/* ... */)
+    .addTransition({
+      to: "processing",  // ← Type "pro" and your IDE suggests "processing"
+      condition: async () => true,
+      weight: 1
+    })
+    // @ts-expect-error — "typo-state" is not a valid state
+    .addTransition({ to: "typo-state", condition: async () => true, weight: 1 })
+  , { initial: true });
+```
+
+The `withStates<...>()` pattern means **you can't transition to a state that doesn't exist** — TypeScript catches it at compile time, not runtime.
 
 ## Core Concepts
 
@@ -161,7 +249,7 @@ Workflow.create()
 node.preventRetry()  // Task failures throw immediately
 ```
 
-Default behavior: infinite retries at 1000ms delay. Use `.preventRetry()` to fail fast, or `.retryLimit(n)` to cap attempts.
+Default behavior: infinite retries at 1000ms delay. This is designed for long-running daemons and background workers where resilience matters. **For request/response contexts** (APIs, CLIs, one-shot scripts), set `.retryLimit(n)` to cap attempts or use `.preventRetry()` to fail fast.
 
 ### Trigger
 
