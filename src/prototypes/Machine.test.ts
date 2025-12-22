@@ -26,7 +26,7 @@ const createState = <const TIdent extends string>(ident: TIdent, label: string) 
 // Helper to create a Machine bypassing withStates requirement (for internal tests)
 // Uses 'string' as the ident type to allow any ident
 const createMachine = () => {
-  return Machine.create<StateData>().withStates<string>();
+  return Machine.create<StateData>().withStates();
 };
 
 const getAllStates = (machine: Machine<StateData, any>) => (machine as any).getAllStates() as StateNode<StateData>[];
@@ -511,7 +511,7 @@ describe("Machine 'run' method with options", () => {
 
   // Helper to create a machine for run tests
   const createRunTestMachine = () => {
-    return Machine.create<RunTestStateData>().withStates<string>();
+    return Machine.create<RunTestStateData>().withStates();
   };
 
   let machine: Machine<RunTestStateData, string>;

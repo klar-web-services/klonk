@@ -28,7 +28,7 @@ type ProcessingState = {
 
 const processingMachine = Machine
     .create<ProcessingState>()
-    .withStates<"process" | "error" | "complete">()
+    .withStates("process", "error", "complete")
     
     // -------------------------------------------------------------------------
     // Process state - loops until all items processed

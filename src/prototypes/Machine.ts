@@ -184,7 +184,7 @@ export class StateNode<TStateData, TIdent extends string = string, AllStateIdent
 }
   
 /**
- * Returned by `Machine.create()` - you must call `.withStates<...>()` to declare state idents.
+ * Returned by `Machine.create()` - you must call `.withStates(...)` to declare state idents.
  * 
  * This ensures all state identifiers are known upfront for full transition autocomplete.
  */
@@ -193,17 +193,18 @@ export interface MachineNeedsStates<TStateData> {
      * Declare all state identifiers that will be used in this machine.
      * This enables full autocomplete for transition targets.
      * 
-     * @template TIdents - Union of all state idents (e.g., `"idle" | "running" | "complete"`).
+     * @param states - All state idents as string arguments. If omitted, any string is allowed (useful for tests).
      * @returns The machine, ready for adding states.
      * 
      * @example
      * Machine.create<MyState>()
-     *     .withStates<"idle" | "running" | "complete">()
+     *     .withStates("idle", "running", "complete")
      *     .addState("idle", node => node
      *         .addTransition({ to: "running", ... })  // Autocomplete works!
      *     )
      */
-    withStates<TIdents extends string>(): Machine<TStateData, TIdents>;
+    withStates(): Machine<TStateData, string>;
+    withStates<const T extends readonly string[]>(...states: T): Machine<TStateData, T[number]>;
 }
 
 /**
@@ -263,7 +264,7 @@ export class Machine<TStateData, AllStateIdents extends string = never> {
     }
 
     /**
-     * Create a new Machine. You must call `.withStates<...>()` next to declare
+     * Create a new Machine. You must call `.withStates(...)` next to declare
      * all state identifiers before adding states.
      *
      * @template TStateData - The shape of the mutable state carried through the machine.
@@ -271,7 +272,7 @@ export class Machine<TStateData, AllStateIdents extends string = never> {
      * 
      * @example
      * Machine.create<MyState>()
-     *     .withStates<"idle" | "running">()
+     *     .withStates("idle", "running")
      *     .addState("idle", node => ...)
      */
     public static create<TStateData>(): MachineNeedsStates<TStateData> {
@@ -284,8 +285,8 @@ export class Machine<TStateData, AllStateIdents extends string = never> {
      * 
      * @internal
      */
-    public withStates<TIdents extends string>(): Machine<TStateData, TIdents> {
-        return this as unknown as Machine<TStateData, TIdents>;
+    public withStates<const T extends readonly string[]>(..._states: T): Machine<TStateData, T[number]> {
+        return this as unknown as Machine<TStateData, T[number]>;
     }
 
     /**
@@ -379,11 +380,11 @@ export class Machine<TStateData, AllStateIdents extends string = never> {
      *         .addTransition({ to: "idle", condition: async () => true, weight: 1 })
      *     )
      */
-    public addState<const TIdent extends string>(
+    public addState<const TIdent extends AllStateIdents>(
         ident: TIdent,
-        builder: (node: StateNode<TStateData, TIdent, AllStateIdents | TIdent>) => StateNode<TStateData, TIdent, AllStateIdents | TIdent>,
+        builder: (node: StateNode<TStateData, TIdent, AllStateIdents>) => StateNode<TStateData, TIdent, AllStateIdents>,
         options: { initial?: boolean } = {}
-    ): Machine<TStateData, AllStateIdents | TIdent> {
+    ): Machine<TStateData, AllStateIdents> {
         const logger = (this.logger?.child?.({ path: "machine.addState", instance: this.ident }) ?? this.logger)
         logger?.info({ phase: 'start', state: ident, isInitial: !!options.initial }, 'Adding state')
         

@@ -31,7 +31,7 @@ type CycleState = {
  */
 const cycleMachine = Machine
     .create<CycleState>()
-    .withStates<"A" | "B" | "C">()
+    .withStates("A", "B", "C")
     
     .addState("A", node => node
         .setPlaylist(p => p
@@ -99,7 +99,7 @@ const cycleMachine = Machine
 
 const leafMachine = Machine
     .create<CycleState>()
-    .withStates<"start" | "middle" | "end">()
+    .withStates("start", "middle", "end")
     
     .addState("start", node => node
         .setPlaylist(p => p

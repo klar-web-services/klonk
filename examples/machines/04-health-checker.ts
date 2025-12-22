@@ -46,7 +46,7 @@ type HealthCheckState = {
 
 const healthCheckMachine = Machine
     .create<HealthCheckState>()
-    .withStates<"check-url" | "complete">()
+    .withStates("check-url", "complete")
     
     // -------------------------------------------------------------------------
     // State: check-url (loops for each URL)

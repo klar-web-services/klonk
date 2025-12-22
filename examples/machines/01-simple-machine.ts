@@ -36,7 +36,7 @@ const simpleMachine = Machine
     
     // Declare ALL state identifiers upfront
     // This enables autocomplete for transitions!
-    .withStates<"start" | "done">()
+    .withStates("start", "done")
     
     // Add the initial state
     .addState("start", node => node

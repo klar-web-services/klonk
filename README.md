@@ -111,7 +111,7 @@ import { Machine } from "@fkws/klonk";
 
 // Declare states upfront → autocomplete for ALL transitions
 const machine = Machine.create<{ count: number }>()
-  .withStates<"idle" | "processing" | "done">()  // ← These drive autocomplete
+  .withStates("idle", "processing", "done")  // ← These drive autocomplete
   .addState("idle", node => node
     .setPlaylist(p => p/* ... */)
     .addTransition({
@@ -257,11 +257,11 @@ A `Workflow` connects one or more `Triggers` to a `Playlist`. When a trigger fir
 
 ### Machine
 
-A `Machine` is a finite state machine. You build it by declaring all state identifiers upfront with `.withStates<...>()`, then adding states with `.addState()`:
+A `Machine` is a finite state machine. You build it by declaring all state identifiers upfront with `.withStates(...)`, then adding states with `.addState()`:
 
 ```typescript
 Machine.create<MyStateData>()
-    .withStates<"idle" | "running" | "complete">()  // Declare all states
+    .withStates("idle", "running", "complete")  // Declare all states
     .addState("idle", node => node
         .setPlaylist(p => p.addTask(...).input(...))
         .addTransition({ to: "running", condition: ..., weight: 1 })  // Autocomplete!
@@ -573,7 +573,7 @@ const client = new OpenRouterClient(process.env.OPENROUTER_API_KEY!)
 const webSearchAgent = Machine
     .create<StateData>()
     // Declare all states upfront for transition autocomplete
-    .withStates<"refine_and_extract" | "search_web" | "generate_response">()
+    .withStates("refine_and_extract", "search_web", "generate_response")
     .addState("refine_and_extract", node => node
         .setPlaylist(p => p
             // Refine the user's input
