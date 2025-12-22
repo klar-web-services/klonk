@@ -73,7 +73,7 @@ Machines are finite state machines with typed transitions.
 
 | File | What You'll Learn |
 |------|-------------------|
-| [`01-simple-machine.ts`](machines/01-simple-machine.ts) | Two states, one transition, `withStates<...>()` |
+| [`01-simple-machine.ts`](machines/01-simple-machine.ts) | Two states, one transition, `withStates()` |
 | [`02-transitions.ts`](machines/02-transitions.ts) | Conditional transitions, weights, self-loops |
 | [`03-run-modes.ts`](machines/03-run-modes.ts) | `leaf`, `roundtrip`, `any`, `infinitely` modes |
 | [`04-health-checker.ts`](machines/04-health-checker.ts) | Full example: URL health checker with loops |
