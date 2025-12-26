@@ -18,12 +18,12 @@ export type Railroad<OutputType, ErrorType = Error> = {
 }
 
 /** Type guard: returns true if the Railroad is a success */
-export function isOk<T, E>(r: Railroad<T, E>): r is { success: true, data: T } {
+export function isOk<T, E>(r: Railroad<T, E>): r is { readonly success: true, readonly data: T } {
     return r.success === true;
 }
 
 /** Type guard: returns true if the Railroad is an error */
-export function isErr<T, E>(r: Railroad<T, E>): r is { success: false, error: E } {
+export function isErr<T, E>(r: Railroad<T, E>): r is { readonly success: false, readonly error: E } {
     return r.success === false;
 }
 
