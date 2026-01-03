@@ -10,7 +10,7 @@
  * - Type-safe access to different payload shapes
  */
 
-import { Workflow, isOk } from "../../src";
+import { Workflow } from "../../src";
 import { WebhookTrigger } from "../triggers/01-simple-trigger";
 import { ScheduleTrigger } from "../triggers/02-custom-payloads";
 import { FetchTask } from "../tasks/01-simple-task";
@@ -85,9 +85,9 @@ const dataPipeline = Workflow.create()
         // Send notification with results
         .addTask(new NotifyTask("notify"))
         .input((event, outputs) => {
-            const fetchOk = outputs.fetchData && isOk(outputs.fetchData);
-            const logId = outputs.logEvent && isOk(outputs.logEvent)
-                ? outputs.logEvent.data.logId
+            const fetchOk = outputs.fetchData && outputs.fetchData.isOk();
+            const logId = outputs.logEvent && outputs.logEvent.isOk()
+                ? outputs.logEvent.logId
                 : "unknown";
             
             // Customize message based on trigger type

@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "@fkws/klonk",
+      "dependencies": {
+        "@fkws/klonk-result": "^0.0.5",
+      },
       "devDependencies": {
         "@types/bun": "latest",
         "@types/node": "latest",
@@ -89,6 +92,8 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.25.11", "", { "os": "win32", "cpu": "ia32" }, "sha512-3ukss6gb9XZ8TlRyJlgLn17ecsK4NSQTmdIXRASVsiS2sQ6zPPZklNJT5GR5tE/MUarymmy8kCEf5xPCNCqVOA=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.11", "", { "os": "win32", "cpu": "x64" }, "sha512-D7Hpz6A2L4hzsRpPaCYkQnGOotdUpDzSGRIv9I+1ITdHROSFUWW95ZPZWQmGka1Fg7W3zFJowyn9WGwMJ0+KPA=="],
+
+    "@fkws/klonk-result": ["@fkws/klonk-result@0.0.5", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-mJPqiVVEaWG/dR/zttfLlUgb4qu0gZKRvlgAqb6NvOFcH0X1VLPi+nrZH7dqpa3qcwOAaqfy3FyhO1lKBgWguw=="],
 
     "@jridgewell/resolve-uri": ["@jridgewell/resolve-uri@3.1.2", "", {}, "sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw=="],
 

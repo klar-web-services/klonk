@@ -10,7 +10,7 @@
  * - Accessing outputs from previous tasks
  */
 
-import { Playlist, isOk } from "../../src";
+import { Playlist } from "../../src";
 import { FetchTask } from "../tasks/01-simple-task";
 import { ParseHtmlTask } from "../tasks/02-validation";
 import { NotifyTask } from "../tasks/03-error-handling";
@@ -46,12 +46,12 @@ const myPlaylist = new Playlist<{}, MySource>()
     // Task 2: Parse the HTML from the fetch result
     .addTask(new ParseHtmlTask("parse"))
     .input((source, outputs) => {
-        // outputs is typed as { fetch: Railroad<FetchOutput> | null }
+        // outputs is typed as { fetch: Result<FetchOutput> | null }
         // We need to check for success before accessing data
         const fetchResult = outputs["fetch"];
         
-        if (fetchResult && isOk(fetchResult)) {
-            return { html: fetchResult.data.body };
+        if (fetchResult && fetchResult.isOk()) {
+            return { html: fetchResult.body };
         }
         // Fallback if fetch failed
         return { html: "<html><body>Empty</body></html>" };
@@ -63,8 +63,8 @@ const myPlaylist = new Playlist<{}, MySource>()
         // Now outputs includes both fetch and parse results!
         const parseResult = outputs["parse"];
         
-        const title = parseResult && isOk(parseResult) 
-            ? parseResult.data.title 
+        const title = parseResult && parseResult.isOk() 
+            ? parseResult.title 
             : "Unknown";
         
         return {
@@ -97,17 +97,17 @@ async function main() {
     console.log("\n--- Playlist Outputs ---\n");
     
     // Access outputs with full type safety
-    if (outputs.fetch && isOk(outputs.fetch)) {
-        console.log("fetch.statusCode:", outputs.fetch.data.statusCode);
+    if (outputs.fetch && outputs.fetch.isOk()) {
+        console.log("fetch.statusCode:", outputs.fetch.statusCode);
     }
     
-    if (outputs.parse && isOk(outputs.parse)) {
-        console.log("parse.title:", outputs.parse.data.title);
-        console.log("parse.links:", outputs.parse.data.links);
+    if (outputs.parse && outputs.parse.isOk()) {
+        console.log("parse.title:", outputs.parse.title);
+        console.log("parse.links:", outputs.parse.links);
     }
     
-    if (outputs.notify && isOk(outputs.notify)) {
-        console.log("notify.sentAt:", outputs.notify.data.sentAt);
+    if (outputs.notify && outputs.notify.isOk()) {
+        console.log("notify.sentAt:", outputs.notify.sentAt);
     }
 }
 

@@ -9,7 +9,7 @@
  * always set retryLimit or use preventRetry.
  */
 
-import { Playlist, isOk } from "../../src";
+import { Playlist } from "../../src";
 import { FlakyTask } from "../tasks/04-flaky-task";
 import { NotifyTask } from "../tasks/03-error-handling";
 
@@ -29,8 +29,8 @@ const retryPlaylist = new Playlist<{}, { maxFailures: number }>()
     
     .addTask(new NotifyTask("notify"))
     .input((source, outputs) => {
-        const attempts = outputs.flaky && isOk(outputs.flaky) 
-            ? outputs.flaky.data.attempts 
+        const attempts = outputs.flaky && outputs.flaky.isOk() 
+            ? outputs.flaky.attempts 
             : "?";
         
         return {
@@ -74,7 +74,7 @@ async function main() {
         .input((source) => ({ maxFailures: source.maxFailures }))
         .addTask(new NotifyTask("notify"))
         .input((source, outputs) => ({
-            message: `Done after ${outputs.flaky && isOk(outputs.flaky) ? outputs.flaky.data.attempts : "?"} attempts`,
+            message: `Done after ${outputs.flaky && outputs.flaky.isOk() ? outputs.flaky.attempts : "?"} attempts`,
             level: "info"
         }));
     

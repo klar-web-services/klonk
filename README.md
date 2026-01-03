@@ -44,7 +44,7 @@ npm i @fkws/klonk
 | **Runtimes** | Node.js 18+, Bun 1.0+, Deno (via npm specifier, best-effort) |
 | **Module** | ESM (native) and CJS (via bundled `/dist`) |
 | **TypeScript** | 5.0+ (required for full type inference) |
-| **Dependencies** | Zero runtime dependencies |
+| **Dependencies** | `@fkws/klonk-result` |
 
 **Status:** Pre-1.0, API may change between minor versions. Aiming for stability by 1.0.
 
@@ -53,22 +53,25 @@ npm i @fkws/klonk
 Copy-paste this to see Klonk in action. One trigger, two tasks, fully typed outputs:
 
 ```typescript
-import { Task, Trigger, Workflow, Railroad, isOk } from "@fkws/klonk";
+import { Task, Trigger, Workflow } from "@fkws/klonk";
+import { Result } from "@fkws/klonk-result";
 
 // 1. Define two simple tasks
 class FetchUser<I extends string> extends Task<{ userId: string }, { name: string; email: string }, I> {
   async validateInput(input: { userId: string }) { return !!input.userId; }
-  async run(input: { userId: string }): Promise<Railroad<{ name: string; email: string }>> {
-    if (input.userId !== "123") return { success: false, error: new Error("User not found") };
-    return { success: true, data: { name: "Alice", email: "alice@example.com" } };
+  async run(input: { userId: string }): Promise<Result<{ name: string; email: string }>> {
+    if (input.userId !== "123") {
+      return new Result({ success: false, error: new Error("User not found") });
+    }
+    return new Result({ success: true, data: { name: "Alice", email: "alice@example.com" } });
   }
 }
 
 class SendEmail<I extends string> extends Task<{ to: string; subject: string }, { sent: boolean }, I> {
   async validateInput(input: { to: string; subject: string }) { return !!input.to; }
-  async run(input: { to: string; subject: string }): Promise<Railroad<{ sent: boolean }>> {
+  async run(input: { to: string; subject: string }): Promise<Result<{ sent: boolean }>> {
     console.log(`📧 Sending "${input.subject}" to ${input.to}`);
-    return { success: true, data: { sent: true } };
+    return new Result({ success: true, data: { sent: true } });
   }
 }
 
@@ -87,10 +90,10 @@ const workflow = Workflow.create()
 
     .addTask(new SendEmail("send-email"))
     .input((source, outputs) => {
-      // outputs["fetch-user"] is typed as Railroad<{ name, email }> | null
+      // outputs["fetch-user"] is typed as Result<{ name, email }> | null
       const user = outputs["fetch-user"];
-      if (!user || !isOk(user)) return null;  // skip if failed
-      return { to: user.data.email, subject: `Welcome, ${user.data.name}!` };
+      if (!user || user.isErr()) return null;  // skip if failed
+      return { to: user.email, subject: `Welcome, ${user.name}!` };
     })
   );
 
@@ -100,7 +103,7 @@ workflow.start({ callback: (src, out) => console.log("✅ Done!", out) });
 **What you just saw:**
 - `source.data.userId` is typed from the trigger
 - `outputs["fetch-user"]` is typed by the task's ident string literal
-- `user.data.email` is narrowed after the `isOk()` check
+- `user.email` is narrowed after the `isErr()` guard
 
 ## TypeScript Magic Moment
 
@@ -136,61 +139,54 @@ A `Task` is the smallest unit of work. It's an abstract class with two main meth
 - `validateInput(input)`: Runtime validation of the task's input (on top of strong typing).
 - `run(input)`: Executes the task's logic.
 
-Tasks use a `Railroad` return type - a discriminated union for handling success and error states without throwing exceptions. Inspired by Rust's `Result<T, E>` type, it comes with familiar helper functions like `unwrap()`, `unwrapOr()`, and more.
+Tasks return `Result<T>` from `@fkws/klonk-result` for handling success and error states without throwing exceptions. It's inspired by Rust's `Result<T, E>` type and provides convenient methods like `isOk()`, `isErr()`, and `unwrap()`.
 
-### Railroad (Rust-inspired Result Type)
+### Result (Rust-inspired Result Type)
 
-`Railroad<T>` is Klonk's version of Rust's `Result<T, E>`. It's a discriminated union that forces you to handle both success and error cases:
+See the `Result<T>` implementation at https://github.com/klar-web-services/klonk-result.
+
+`Result<T>` is Klonk's Rust-inspired result type. It forces you to handle both success and error cases:
 
 ```typescript
-type Railroad<T> = 
-    | { success: true, data: T }
-    | { success: false, error: Error }
+import { Result } from "@fkws/klonk-result";
+
+const ok = new Result({ success: true, data: { value: 42 } });
+const err = new Result({ success: false, error: new Error("oops") });
 ```
 
-#### Helper Functions
-
-Klonk provides Rust-inspired helper functions for working with `Railroad`:
+#### Result Methods
 
 ```typescript
-import { unwrap, unwrapOr, unwrapOrElse, isOk, isErr } from "@fkws/klonk";
+// isErr: Type guard for error case
+if (err.isErr()) {
+    console.log(err.error);  // TypeScript knows it's error
+}
 
 // unwrap: Get data or throw error (like Rust's .unwrap())
-const data = unwrap(result);  // Returns T or throws
+const data = ok.unwrap();  // Returns the data or throws
 
-// unwrapOr: Get data or return a default value
-const data = unwrapOr(result, defaultValue);  // Returns T
-
-// unwrapOrElse: Get data or compute a fallback from the error
-const data = unwrapOrElse(result, (err) => computeFallback(err));
-
-// isOk / isErr: Type guards for narrowing
-if (isOk(result)) {
-    console.log(result.data);  // TypeScript knows it's success
-}
-if (isErr(result)) {
-    console.log(result.error);  // TypeScript knows it's error
+// When isOk() is true, you can access T's members directly (proxy forwarding).
+if (ok.isOk()) {
+    console.log(ok.value);
 }
 ```
 
-#### Why Railroad?
+#### Why Result?
 
-The name "Railroad" comes from Railway Oriented Programming, where success travels the "happy path" and errors get shunted to the "error track". Combined with TypeScript's type narrowing, you get explicit error handling without exceptions. If you like Rust's `Result`, you'll feel at home.
+The `Result` type keeps error handling explicit without forcing exceptions. Combined with TypeScript's narrowing, you get the ergonomics of Rust's `Result` with JS-friendly patterns.
 
 ### Playlist
 
 A `Playlist` is a sequence of `Tasks` executed in order. Each task has access to the outputs of all previous tasks, in a fully type-safe way. You build a `Playlist` by chaining `.addTask().input()` calls:
 
 ```typescript
-import { isOk } from "@fkws/klonk";
-
 playlist
     .addTask(new FetchTask("fetch"))
     .input((source) => ({ url: source.targetUrl }))
     .addTask(new ParseTask("parse"))
     .input((source, outputs) => ({
         // Use isOk for Rust-style type narrowing!
-        html: outputs.fetch && isOk(outputs.fetch) ? outputs.fetch.data.body : ""
+        html: outputs.fetch && outputs.fetch.isOk() ? outputs.fetch.body : ""
     }))
 ```
 
@@ -201,13 +197,11 @@ playlist
 Need to conditionally skip a task? Just return `null` from the input builder:
 
 ```typescript
-import { isOk } from "@fkws/klonk";
-
 playlist
     .addTask(new NotifyTask("notify"))
     .input((source, outputs) => {
         // Skip notification if previous task failed - using isOk!
-        if (!outputs.fetch || !isOk(outputs.fetch)) {
+        if (!outputs.fetch || outputs.fetch.isErr()) {
             return null;  // Task will be skipped!
         }
         return { message: "Success!", level: "info" };
@@ -215,7 +209,7 @@ playlist
 ```
 
 When a task is skipped:
-- Its output in the `outputs` map is `null` (not a `Railroad`)
+- Its output in the `outputs` map is `null` (not a `Result`)
 - The playlist continues to the next task
 - Subsequent tasks can check `if (outputs.notify === null)` to know it was skipped
 
@@ -223,7 +217,7 @@ This gives you Rust-like `Option` semantics using TypeScript's native `null` - n
 
 #### Task Retries
 
-When a task fails (`success: false`), it can be automatically retried. Retry behavior is configured on the `Machine` state or `Workflow`:
+When a task fails (`Result.isErr()`), it can be automatically retried. Retry behavior is configured on the `Machine` state or `Workflow`:
 
 ```typescript
 // On a Machine state:
@@ -307,7 +301,8 @@ Coming soon(ish)! Klonkworks will be a collection of pre-built Tasks, Triggers, 
 Here's how you create a custom `Task`. This task uses an AI client to perform text inference.
 
 ```typescript
-import { Railroad, Task } from "@fkws/klonk";
+import { Task } from "@fkws/klonk";
+import { Result } from "@fkws/klonk-result";
 import { OpenRouterClient } from "./common/OpenrouterClient"
 import { Model } from "./common/models";
 
@@ -342,8 +337,8 @@ export class TABasicTextInference<IdentType extends string> extends Task<
         return true;
     }
 
-    // The core logic of your task. It must return a Railroad type.
-    async run(input: TABasicTextInferenceInput): Promise<Railroad<TABasicTextInferenceOutput>> {
+    // The core logic of your task. It must return a Result type.
+    async run(input: TABasicTextInferenceInput): Promise<Result<TABasicTextInferenceOutput>> {
         try {
             const result = await this.client.basicTextInference({
                 inputText: input.inputText,
@@ -351,16 +346,16 @@ export class TABasicTextInference<IdentType extends string> extends Task<
                 model: input.model
             });
             // On success, return a success object with your data.
-            return {
+            return new Result({
                 success: true,
                 data: { text: result }
-            };
+            });
         } catch (error) {
             // On failure, return an error object.
-            return {
+            return new Result({
                 success: false,
                 error: error instanceof Error ? error : new Error(String(error))
-            };
+            });
         }
     }
 }
@@ -414,7 +409,7 @@ Notice the fluent `.addTask(task).input(builder)` syntax - each task's input bui
 
 ```typescript
 import { z } from 'zod';
-import { Workflow, isOk } from '@fkws/klonk';
+import { Workflow } from '@fkws/klonk';
 
 // The following example requires tasks, integrations and a trigger.
 // Soon, you will be able to import these from @fkws/klonkworks.
@@ -468,32 +463,32 @@ const workflow = Workflow.create()
             // Access outputs of previous tasks - fully typed!
             // Check for null (skipped) and success
             const downloadResult = outputs['download-invoice-pdf'];
-            if (!downloadResult || !isOk(downloadResult)) {
+            if (!downloadResult || downloadResult.isErr()) {
                 throw downloadResult?.error ?? new Error('Failed to download invoice PDF');
             }
 
             const payeesResult = outputs['get-payees'];
-            if (!payeesResult || !isOk(payeesResult)) {
+            if (!payeesResult || payeesResult.isErr()) {
                 throw payeesResult?.error ?? new Error('Failed to load payees');
             }
 
             const expenseTypesResult = outputs['get-expense-types'];
-            if (!expenseTypesResult || !isOk(expenseTypesResult)) {
+            if (!expenseTypesResult || expenseTypesResult.isErr()) {
                 throw expenseTypesResult?.error ?? new Error('Failed to load expense types');
             }
 
             return {
-                pdf: downloadResult.data.file,
+                pdf: downloadResult.file,
                 instructions: "Extract data from the invoice",
                 schema: z.object({
-                    payee: z.enum(payeesResult.data.map(p => p.id) as [string, ...string[]])
+                    payee: z.enum(payeesResult.map(p => p.id) as [string, ...string[]])
                         .describe("The payee id"),
                     total: z.number()
                         .describe("The total amount"),
                     invoice_date: z.string()
                         .regex(/^\d{4}-\d{2}-\d{2}$/)
                         .describe("Date as YYYY-MM-DD"),
-                    expense_type: z.enum(expenseTypesResult.data.map(e => e.id) as [string, ...string[]])
+                    expense_type: z.enum(expenseTypesResult.map(e => e.id) as [string, ...string[]])
                         .describe("The expense type id")
                 })
             }
@@ -503,10 +498,10 @@ const workflow = Workflow.create()
         .addTask(new TACreateNotionDatabaseItem("create-notion-invoice", notionProvider))
         .input((source, outputs) => {
             const invoiceResult = outputs['parse-invoice'];
-            if (!invoiceResult || !isOk(invoiceResult)) {
+            if (!invoiceResult || invoiceResult.isErr()) {
                 throw invoiceResult?.error ?? new Error('Failed to parse invoice');
             }
-            const invoiceData = invoiceResult.data;
+            const invoiceData = invoiceResult;
             return {
                 database_id: process.env.NOTION_INVOICES_DATABASE_ID!,
                 properties: {
@@ -539,7 +534,7 @@ workflow.start({
 The `Machine` manages a `StateData` object. Each `StateNode`'s `Playlist` can modify this state, and the `Transitions` between states use it to decide which state to move to next.
 
 ```typescript
-import { Machine, isOk } from "@fkws/klonk"
+import { Machine } from "@fkws/klonk"
 import { OpenRouterClient } from "./tasks/common/OpenrouterClient" 
 import { Model } from "./tasks/common/models"
 import { TABasicTextInference } from "./tasks/TABasicTextInference"
@@ -588,18 +583,18 @@ const webSearchAgent = Machine
             // Extract search terms from refined input
             .addTask(new TABasicTextInference("extract_search_terms", client))
             .input((state, outputs) => ({
-                inputText: `Original: ${state.input}\n\nRefined: ${outputs.refine && isOk(outputs.refine) ? outputs.refine.data.text : state.input}`,
+                inputText: `Original: ${state.input}\n\nRefined: ${outputs.refine && outputs.refine.isOk() ? outputs.refine.text : state.input}`,
                 model: state.model ?? "openai/gpt-5.2",
                 instructions: `Extract one short web search query from the user request and refined prompt.`
             }))
 
             // Update state with results - using isOk for type narrowing
             .finally((state, outputs) => {
-                if (outputs.refine && isOk(outputs.refine)) {
-                    state.refinedInput = outputs.refine.data.text;
+                if (outputs.refine && outputs.refine.isOk()) {
+                    state.refinedInput = outputs.refine.text;
                 }
-                if (outputs.extract_search_terms && isOk(outputs.extract_search_terms)) {
-                    state.searchTerm = outputs.extract_search_terms.data.text;
+                if (outputs.extract_search_terms && outputs.extract_search_terms.isOk()) {
+                    state.searchTerm = outputs.extract_search_terms.text;
                 }
             })
         )
@@ -623,8 +618,8 @@ const webSearchAgent = Machine
                 query: state.searchTerm!
             }))
             .finally((state, outputs) => {
-                if (outputs.search && isOk(outputs.search)) {
-                    state.searchResults = outputs.search.data;
+                if (outputs.search && outputs.search.isOk()) {
+                    state.searchResults = outputs.search;
                 }
             })
         )
@@ -646,8 +641,8 @@ const webSearchAgent = Machine
                                Write a professional response.`
             }))
             .finally((state, outputs) => {
-                state.finalResponse = outputs.generate_response && isOk(outputs.generate_response)
-                    ? outputs.generate_response.data.text
+                state.finalResponse = outputs.generate_response && outputs.generate_response.isOk()
+                    ? outputs.generate_response.text
                     : "Sorry, an error occurred: " + (outputs.generate_response?.error ?? "unknown");
             })
         )
@@ -680,22 +675,20 @@ Klonk's type system is minimal. Here's how it works:
 | Type | Parameters | Purpose |
 |------|------------|---------|
 | `Task<Input, Output, Ident>` | Input shape, output shape, string literal ident | Base class for all tasks |
-| `Railroad<Output>` | Success data type | Discriminated union for success/error results (like Rust's `Result`) |
+| `Result<Output>` | Success data type | Rust-inspired result type (from `@fkws/klonk-result`) |
 | `Playlist<AllOutputs, Source>` | Accumulated output map, source data type | Ordered task sequence with typed chaining |
 | `Trigger<Ident, Data>` | String literal ident, event payload type | Event source for workflows |
 | `Workflow<Events>` | Union of trigger event types | Connects triggers to playlists |
 | `Machine<StateData, AllStateIdents>` | Mutable state shape, union of state idents | Finite state machine with typed transitions |
 | `StateNode<StateData, Ident, AllStateIdents>` | State shape, this node's ident, all valid transition targets | Individual state with playlist and transitions |
 
-### Railroad Helper Functions
+### Result Methods
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `unwrap(r)` | `Railroad<T> → T` | Returns data or throws error |
-| `unwrapOr(r, default)` | `Railroad<T>, T → T` | Returns data or default value |
-| `unwrapOrElse(r, fn)` | `Railroad<T>, (E) → T → T` | Returns data or result of fn(error) |
-| `isOk(r)` | `Railroad<T> → boolean` | Type guard for success case |
-| `isErr(r)` | `Railroad<T> → boolean` | Type guard for error case |
+| `result.unwrap()` | `Result<T> → T` | Returns data or throws error |
+| `result.isOk()` | `Result<T> → boolean` | Type guard for success case |
+| `result.isErr()` | `Result<T> → boolean` | Type guard for error case |
 
 ### How Output Chaining Works
 
@@ -705,17 +698,17 @@ When you add a task to a playlist, Klonk extends the output type:
 // Start with empty outputs
 Playlist<{}, Source>
     .addTask(new FetchTask("fetch")).input(...)
-// Now outputs include: { fetch: Railroad<FetchOutput> | null }
-Playlist<{ fetch: Railroad<FetchOutput> | null }, Source>
+// Now outputs include: { fetch: Result<FetchOutput> | null }
+Playlist<{ fetch: Result<FetchOutput> | null }, Source>
     .addTask(new ParseTask("parse")).input(...)  
-// Now outputs include both: { fetch: ..., parse: Railroad<ParseOutput> | null }
+// Now outputs include both: { fetch: ..., parse: Result<ParseOutput> | null }
 ```
 
-The `| null` accounts for the possibility that a task was skipped (when its input builder returns `null`). This is why you'll check for null before using `isOk()` - for example: `outputs.fetch && isOk(outputs.fetch)`. TypeScript then narrows the type so you can safely access `.data`!
+The `| null` accounts for the possibility that a task was skipped (when its input builder returns `null`). This is why you'll check for null before using `isOk()` - for example: `outputs.fetch && outputs.fetch.isOk()`. TypeScript then narrows the type so you can safely access fields!
 
 This maps cleanly to Rust's types:
 | Rust | Klonk (TypeScript) |
 |------|-------------------|
 | `Option<T>` | `T \| null` |
-| `Result<T, E>` | `Railroad<T>` |
-| `Option<Result<T, E>>` | `Railroad<T> \| null` |
+| `Result<T, E>` | `Result<T>` |
+| `Option<Result<T, E>>` | `Result<T> \| null` |

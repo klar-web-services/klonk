@@ -1,4 +1,5 @@
-import { Task, Railroad } from "./Task"
+import { Task } from "./Task"
+import { Result } from "@fkws/klonk-result"
 
 /**
  * @internal Internal assembly type that couples a task with its input builder.
@@ -37,7 +38,7 @@ export interface TaskInputRequired<
      * Return `null` to skip this task - its output will be `null` in the outputs map.
      */
     input(builder: (source: SourceType, outputs: AllOutputTypes) => TInput | null): 
-        Playlist<AllOutputTypes & { [K in TIdent]: Railroad<TOutput> | null }, SourceType>
+        Playlist<AllOutputTypes & { [K in TIdent]: Result<TOutput> | null }, SourceType>
 }
 
 /**

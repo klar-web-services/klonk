@@ -3,12 +3,13 @@
  * 
  * A Task is the smallest unit of work in Klonk. It's an abstract class with:
  * - validateInput(input): Runtime validation of input data
- * - run(input): The core logic, returns a Railroad<Output> (success or error)
+ * - run(input): The core logic, returns a Result<Output> (success or error)
  * 
  * This file demonstrates the simplest possible task implementation.
  */
 
-import { Task, Railroad } from "../../src";
+import { Task } from "../../src";
+import { Result } from "@fkws/klonk-result";
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -45,19 +46,19 @@ export class FetchTask<TIdent extends string> extends Task<FetchInput, FetchOutp
 
     /**
      * Execute the task logic.
-     * Returns a Railroad type: { success: true, data: T } or { success: false, error: Error }
+     * Returns Result<FetchOutput> from @fkws/klonk-result
      */
-    async run(input: FetchInput): Promise<Railroad<FetchOutput>> {
+    async run(input: FetchInput): Promise<Result<FetchOutput>> {
         // In a real implementation, you'd use fetch() here
         console.log(`[FetchTask] Fetching ${input.url}`);
         
-        return {
+        return new Result({
             success: true,
             data: { 
                 statusCode: 200, 
                 body: `<html>Content from ${input.url}</html>` 
             }
-        };
+        });
     }
 }
 
@@ -81,9 +82,9 @@ async function main() {
     const result = await fetchTask.run({ url: "https://example.com" });
 
     // Check the result
-    if (result.success) {
-        console.log("Success! Status code:", result.data.statusCode);
-        console.log("Body preview:", result.data.body.substring(0, 50) + "...");
+    if (result.isOk()) {
+        console.log("Success! Status code:", result.statusCode);
+        console.log("Body preview:", result.body.substring(0, 50) + "...");
     } else {
         console.log("Error:", result.error.message);
     }

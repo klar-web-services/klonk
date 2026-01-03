@@ -15,7 +15,7 @@
  * - Multiple tasks per state
  */
 
-import { Machine, isOk, unwrapOr } from "../../src";
+import { Machine } from "../../src";
 import { FetchTask, FetchOutput } from "../tasks/01-simple-task";
 import { ParseHtmlTask } from "../tasks/02-validation";
 import { LogTask, NotifyTask } from "../tasks/03-error-handling";
@@ -62,11 +62,14 @@ const healthCheckMachine = Machine
             // Parse the response
             .addTask(new ParseHtmlTask("parse"))
             .input((state, outputs) => {
-                // Use unwrapOr for clean fallback
+                // Use clean fallback
                 const defaultFetch: FetchOutput = { statusCode: 0, body: "" };
-                const fetchData = outputs.fetch 
-                    ? unwrapOr(outputs.fetch, defaultFetch)
+                const fetchData = (outputs.fetch && outputs.fetch.isOk())
+                    ? outputs.fetch // direct access via Result proxy
                     : defaultFetch;
+                // Direct access via proxy also works: outputs.fetch.body
+                // but since we need a fallback for the whole object:
+                
                 return { html: fetchData.body };
             })
             
@@ -78,28 +81,28 @@ const healthCheckMachine = Machine
                     url: state.urls[state.currentIndex],
                     index: state.currentIndex,
                     total: state.urls.length,
-                    fetchSuccess: outputs.fetch ? isOk(outputs.fetch) : false,
-                    parseSuccess: outputs.parse ? isOk(outputs.parse) : false,
-                    title: outputs.parse && isOk(outputs.parse) 
-                        ? outputs.parse.data.title 
+                    fetchSuccess: outputs.fetch ? outputs.fetch.isOk() : false,
+                    parseSuccess: outputs.parse ? outputs.parse.isOk() : false,
+                    title: outputs.parse && outputs.parse.isOk() 
+                        ? outputs.parse.title 
                         : null,
-                    linkCount: outputs.parse && isOk(outputs.parse) 
-                        ? outputs.parse.data.links.length 
+                    linkCount: outputs.parse && outputs.parse.isOk() 
+                        ? outputs.parse.links.length 
                         : 0
                 }
             }))
             
             // Update state with results
             .finally((state, outputs) => {
-                const fetchOk = outputs.fetch && isOk(outputs.fetch);
-                const parseOk = outputs.parse && isOk(outputs.parse);
+                const fetchOk = outputs.fetch && outputs.fetch.isOk();
+                const parseOk = outputs.parse && outputs.parse.isOk();
                 const healthy = fetchOk && parseOk;
                 
                 state.results.push({
                     url: state.urls[state.currentIndex],
                     healthy: healthy ?? false,
-                    title: outputs.parse && isOk(outputs.parse) ? outputs.parse.data.title : undefined,
-                    statusCode: outputs.fetch && isOk(outputs.fetch) ? outputs.fetch.data.statusCode : undefined
+                    title: outputs.parse && outputs.parse.isOk() ? outputs.parse.title : undefined,
+                    statusCode: outputs.fetch && outputs.fetch.isOk() ? outputs.fetch.statusCode : undefined
                 });
                 
                 // Move to next URL

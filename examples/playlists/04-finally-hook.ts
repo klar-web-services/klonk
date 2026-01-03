@@ -14,7 +14,7 @@
  * update the machine's stateData based on task results.
  */
 
-import { Playlist, isOk } from "../../src";
+import { Playlist } from "../../src";
 import { FetchTask } from "../tasks/01-simple-task";
 import { ParseHtmlTask } from "../tasks/02-validation";
 import { LogTask } from "../tasks/03-error-handling";
@@ -55,8 +55,8 @@ const playlistWithFinally = new Playlist<{}, Source>()
     // Parse the response
     .addTask(new ParseHtmlTask("parse"))
     .input((source, outputs) => {
-        if (outputs.fetch && isOk(outputs.fetch)) {
-            return { html: outputs.fetch.data.body };
+        if (outputs.fetch && outputs.fetch.isOk()) {
+            return { html: outputs.fetch.body };
         }
         return { html: "" };
     })
@@ -67,8 +67,8 @@ const playlistWithFinally = new Playlist<{}, Source>()
         action: "url_processed",
         metadata: {
             url: source.url,
-            fetchSuccess: outputs.fetch ? isOk(outputs.fetch) : false,
-            parseSuccess: outputs.parse ? isOk(outputs.parse) : false
+            fetchSuccess: outputs.fetch ? outputs.fetch.isOk() : false,
+            parseSuccess: outputs.parse ? outputs.parse.isOk() : false
         }
     }))
 
@@ -80,8 +80,8 @@ const playlistWithFinally = new Playlist<{}, Source>()
         state.processedUrls.push(source.url);
         
         // Update success/failure counts
-        const fetchOk = outputs.fetch && isOk(outputs.fetch);
-        const parseOk = outputs.parse && isOk(outputs.parse);
+        const fetchOk = outputs.fetch && outputs.fetch.isOk();
+        const parseOk = outputs.parse && outputs.parse.isOk();
         
         if (fetchOk && parseOk) {
             state.successCount++;
@@ -90,8 +90,8 @@ const playlistWithFinally = new Playlist<{}, Source>()
         }
         
         // Store the last parsed title
-        if (outputs.parse && isOk(outputs.parse)) {
-            state.lastTitle = outputs.parse.data.title;
+        if (outputs.parse && outputs.parse.isOk()) {
+            state.lastTitle = outputs.parse.title;
         }
         
         console.log("[.finally()] State updated:", state);
@@ -117,7 +117,7 @@ const multipleFinally = new Playlist<{}, { value: number }>()
     
     .finally((source, outputs) => {
         console.log("[finally 2] Second hook - logging succeeded:", 
-            outputs.log ? isOk(outputs.log) : false);
+            outputs.log ? outputs.log.isOk() : false);
     })
     
     .finally((source, outputs) => {

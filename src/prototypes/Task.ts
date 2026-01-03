@@ -1,49 +1,4 @@
-/**
- * A simple discriminated-union result type used by Tasks.
- * Prefer returning a `Railroad` from `Task.run` instead of throwing exceptions.
- *
- * Example:
- * - Success: `{ success: true, data: value }`
- * - Failure: `{ success: false, error }`
- *
- * @template OutputType - The success payload type.
- * @template ErrorType - Optional error payload type (default `Error`).
- */
-export type Railroad<OutputType, ErrorType = Error> = {
-    readonly success: true,
-    readonly data: OutputType
-} | {
-    readonly success: false,
-    readonly error: ErrorType
-}
-
-/** Type guard: returns true if the Railroad is a success */
-export function isOk<T, E>(r: Railroad<T, E>): r is { readonly success: true, readonly data: T } {
-    return r.success === true;
-}
-
-/** Type guard: returns true if the Railroad is an error */
-export function isErr<T, E>(r: Railroad<T, E>): r is { readonly success: false, readonly error: E } {
-    return r.success === false;
-}
-
-/** Returns the data if success, throws the error if failure (like Rust's unwrap) */
-export function unwrap<T, E>(r: Railroad<T, E>): T {
-    if (r.success) return r.data;
-    throw r.error;
-}
-
-/** Returns the data if success, or the default value if failure */
-export function unwrapOr<T, E>(r: Railroad<T, E>, defaultValue: T): T {
-    if (r.success) return r.data;
-    return defaultValue;
-}
-
-/** Returns the data if success, or calls the function with the error if failure */
-export function unwrapOrElse<T, E>(r: Railroad<T, E>, fn: (error: E) => T): T {
-    if (r.success) return r.data;
-    return fn(r.error);
-}
+import { Result } from "@fkws/klonk-result";
 
 /**
  * Base class for all executable units in Klonk.
@@ -82,5 +37,5 @@ export abstract class Task<InputType, OutputType, IdentType extends string> {
      * @param input - The input object provided by the Playlist builder.
      * @returns A `Railroad` containing output data on success, or an error on failure.
      */
-    abstract run(input: InputType): Promise<Railroad<OutputType>>
+    abstract run(input: InputType): Promise<Result<OutputType>>
 }

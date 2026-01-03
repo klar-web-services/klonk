@@ -2,14 +2,13 @@
  * Example: Error Handling in Playlists
  * 
  * This example demonstrates different patterns for handling task failures
- * within a playlist using Railroad helpers:
+ * within a playlist using Result methods:
  * - isOk() / isErr() for type guards
- * - unwrapOr() for default values
- * - unwrapOrElse() for computed fallbacks
+ * - Conditional logic for defaults and fallbacks
  */
 
-import { Playlist, isOk, isErr, unwrapOr, unwrapOrElse } from "../../src";
-import { FetchTask, FetchOutput } from "../tasks/01-simple-task";
+import { Playlist } from "../../src";
+import { FetchTask } from "../tasks/01-simple-task";
 import { ParseHtmlTask } from "../tasks/02-validation";
 import { LogTask } from "../tasks/03-error-handling";
 
@@ -28,9 +27,9 @@ const isOkPatternPlaylist = new Playlist<{}, { url: string }>()
     .addTask(new ParseHtmlTask("parse"))
     .input((source, outputs) => {
         // Pattern: isOk() check with fallback
-        if (outputs.fetch && isOk(outputs.fetch)) {
-            // TypeScript knows: outputs.fetch.data exists
-            return { html: outputs.fetch.data.body };
+        if (outputs.fetch && outputs.fetch.isOk()) {
+            // Direct access via proxy
+            return { html: outputs.fetch.body };
         }
         // Fallback for failure
         return { html: "<html><body>Fetch failed</body></html>" };
@@ -41,20 +40,20 @@ const isOkPatternPlaylist = new Playlist<{}, { url: string }>()
         action: "processed",
         metadata: {
             // Pattern: inline ternary with isOk
-            fetchSuccess: outputs.fetch ? isOk(outputs.fetch) : false,
-            parseSuccess: outputs.parse ? isOk(outputs.parse) : false,
+            fetchSuccess: outputs.fetch ? outputs.fetch.isOk() : false,
+            parseSuccess: outputs.parse ? outputs.parse.isOk() : false,
             // Safe nested access
-            title: outputs.parse && isOk(outputs.parse) ? outputs.parse.data.title : null
+            title: outputs.parse && outputs.parse.isOk() ? outputs.parse.title : null
         }
     }));
 
 // =============================================================================
-// PATTERN 2: Using unwrapOr() for Defaults
+// PATTERN 2: Manual Defaults (replacing unwrapOr)
 // =============================================================================
 
 /**
  * Cleaner when you have a simple default value.
- * No need for if/else blocks.
+ * Use ternary operator or helper function.
  */
 const unwrapOrPatternPlaylist = new Playlist<{}, { url: string }>()
     .addTask(new FetchTask("fetch"))
@@ -62,34 +61,29 @@ const unwrapOrPatternPlaylist = new Playlist<{}, { url: string }>()
     
     .addTask(new ParseHtmlTask("parse"))
     .input((source, outputs) => {
-        // Pattern: unwrapOr with default
-        const defaultFetch: FetchOutput = { statusCode: 0, body: "<empty/>" };
-        const fetchData = outputs.fetch 
-            ? unwrapOr(outputs.fetch, defaultFetch)
-            : defaultFetch;
+        // Pattern: ternary default
+        const body = (outputs.fetch && outputs.fetch.isOk())
+            ? outputs.fetch.body
+            : "<empty/>";
         
-        return { html: fetchData.body };
+        return { html: body };
     })
     
     .addTask(new LogTask("log"))
     .input((source, outputs) => {
-        // Pattern: nested unwrapOr for deep access
-        const defaultFetch: FetchOutput = { statusCode: 0, body: "" };
-        const fetchData = outputs.fetch 
-            ? unwrapOr(outputs.fetch, defaultFetch)
-            : defaultFetch;
+        const fetchOk = outputs.fetch && outputs.fetch.isOk();
         
         return {
             action: "processed",
             metadata: {
-                statusCode: fetchData.statusCode,
-                bodyLength: fetchData.body.length
+                statusCode: fetchOk ? outputs.fetch!.statusCode : 0,
+                bodyLength: fetchOk ? outputs.fetch!.body.length : 0
             }
         };
     });
 
 // =============================================================================
-// PATTERN 3: Using unwrapOrElse() for Computed Fallbacks
+// PATTERN 3: Computed Fallbacks (replacing unwrapOrElse)
 // =============================================================================
 
 /**
@@ -102,12 +96,18 @@ const unwrapOrElsePatternPlaylist = new Playlist<{}, { url: string }>()
     .addTask(new LogTask("log"))
     .input((source, outputs) => {
         // Pattern: compute fallback from error
-        const fetchData = outputs.fetch 
-            ? unwrapOrElse(outputs.fetch, (err) => ({
+        let fetchData: { statusCode: number; body: string };
+        
+        if (outputs.fetch && outputs.fetch.isOk()) {
+             fetchData = { statusCode: outputs.fetch.statusCode, body: outputs.fetch.body };
+        } else if (outputs.fetch && outputs.fetch.isErr()) {
+             fetchData = {
                 statusCode: 500,
-                body: `Error: ${err.message}`
-            }))
-            : { statusCode: 0, body: "No result" };
+                body: `Error: ${outputs.fetch.error.message}`
+             };
+        } else {
+             fetchData = { statusCode: 0, body: "No result" };
+        }
         
         return {
             action: fetchData.statusCode >= 400 ? "fetch_error" : "fetch_success",
@@ -132,7 +132,7 @@ const isErrPatternPlaylist = new Playlist<{}, { url: string }>()
     .addTask(new LogTask("logError"))
     .input((source, outputs) => {
         // Pattern: Check for error and access error details
-        if (outputs.fetch && isErr(outputs.fetch)) {
+        if (outputs.fetch && outputs.fetch.isErr()) {
             return {
                 action: "fetch_failed",
                 metadata: {
@@ -163,10 +163,10 @@ async function main() {
     console.log("--- Pattern 1: isOk() Type Guards ---\n");
     await isOkPatternPlaylist.run(source);
 
-    console.log("\n--- Pattern 2: unwrapOr() Defaults ---\n");
+    console.log("\n--- Pattern 2: Manual Defaults ---\n");
     await unwrapOrPatternPlaylist.run(source);
 
-    console.log("\n--- Pattern 3: unwrapOrElse() Computed Fallbacks ---\n");
+    console.log("\n--- Pattern 3: Computed Fallbacks ---\n");
     await unwrapOrElsePatternPlaylist.run(source);
 
     console.log("\n--- Pattern 4: isErr() Error Handling ---\n");
@@ -175,8 +175,8 @@ async function main() {
     // Summary
     console.log("\n--- Pattern Summary ---");
     console.log("• isOk()/isErr(): Best for branching logic");
-    console.log("• unwrapOr(): Best for simple default values");
-    console.log("• unwrapOrElse(): Best when fallback depends on error");
+    console.log("• Ternary operators: Best for simple defaults");
+    console.log("• if/else blocks: Best for complex fallbacks");
 }
 
 main().catch(console.error);

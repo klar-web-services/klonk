@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { Playlist } from "./Playlist";
-import { Task, type Railroad } from "./Task";
+import { Task } from "./Task";
+import { Result } from "@fkws/klonk-result";
 
 // Helper to control when a flaky task succeeds
 let flakyAttempts = 0;
@@ -28,8 +29,8 @@ class DoublingTask extends Task<DoubleInput, DoubleOutput, DoubleIdent> {
     return Number.isFinite(input.value);
   }
 
-  async run(input: DoubleInput): Promise<Railroad<DoubleOutput>> {
-    return { success: true, data: { doubled: input.value * 2 } };
+  async run(input: DoubleInput): Promise<Result<DoubleOutput>> {
+    return new Result({ success: true, data: { doubled: input.value * 2 } });
   }
 }
 
@@ -42,8 +43,8 @@ class IncrementTask extends Task<IncrementInput, IncrementOutput, IncrementIdent
     return true;
   }
 
-  async run(input: IncrementInput): Promise<Railroad<IncrementOutput>> {
-    return { success: true, data: { incremented: input.current + 1 } };
+  async run(input: IncrementInput): Promise<Result<IncrementOutput>> {
+    return new Result({ success: true, data: { incremented: input.current + 1 } });
   }
 }
 
@@ -56,8 +57,8 @@ class RejectingTask extends Task<ValidationInput, ValidationOutput, ValidationId
     return false;
   }
 
-  async run(): Promise<Railroad<ValidationOutput>> {
-    return { success: true, data: { upper: "IGNORED" } };
+  async run(): Promise<Result<ValidationOutput>> {
+    return new Result({ success: true, data: { upper: "IGNORED" } });
   }
 }
 
@@ -72,12 +73,12 @@ class FlakyTask extends Task<{ failUntilAttempt: number }, { result: string }, F
     return true;
   }
 
-  async run(input: { failUntilAttempt: number }): Promise<Railroad<{ result: string }>> {
+  async run(input: { failUntilAttempt: number }): Promise<Result<{ result: string }>> {
     flakyAttempts++;
     if (flakyAttempts < input.failUntilAttempt) {
-      return { success: false, error: new Error(`Attempt ${flakyAttempts} failed`) };
+      return new Result({ success: false, error: new Error(`Attempt ${flakyAttempts} failed`) });
     }
-    return { success: true, data: { result: `Succeeded on attempt ${flakyAttempts}` } };
+    return new Result({ success: true, data: { result: `Succeeded on attempt ${flakyAttempts}` } });
   }
 }
 
@@ -90,8 +91,8 @@ class AlwaysFailingTask extends Task<{}, { result: string }, "failing"> {
     return true;
   }
 
-  async run(): Promise<Railroad<{ result: string }>> {
-    return { success: false, error: new Error("Always fails") };
+  async run(): Promise<Result<{ result: string }>> {
+    return new Result({ success: false, error: new Error("Always fails") });
   }
 }
 
@@ -104,9 +105,9 @@ class FailsWithoutErrorTask extends Task<{}, { result: string }, "noerror"> {
     return true;
   }
 
-  async run(): Promise<Railroad<{ result: string }>> {
+  async run(): Promise<Result<{ result: string }>> {
     // Return failure without an error object to test fallback error messages
-    return { success: false } as Railroad<{ result: string }>;
+    return new Result({ success: false } as any);
   }
 }
 
@@ -127,10 +128,10 @@ describe("Playlist", () => {
       .addTask(new IncrementTask())
       .input((_, outputs) => {
         const doubleResult = outputs.double;
-        if (doubleResult === null || !doubleResult.success) {
+        if (doubleResult === null || doubleResult.isErr()) {
           throw new Error("Expected the doubling task to succeed");
         }
-        return { current: doubleResult.data.doubled };
+        return { current: doubleResult.unwrap().doubled };
       });
 
     expect(base.bundles).toHaveLength(0);
@@ -139,16 +140,16 @@ describe("Playlist", () => {
 
     const result = await complete.run({ start: 3 });
     const doubleOut = result.double;
-    if (doubleOut === null || !doubleOut.success) {
+    if (doubleOut === null || doubleOut.isErr()) {
       throw new Error("Expected doubling task to succeed");
     }
     const incrementOut = result.increment;
-    if (incrementOut === null || !incrementOut.success) {
+    if (incrementOut === null || incrementOut.isErr()) {
       throw new Error("Expected increment task to succeed");
     }
 
-    expect(doubleOut.data.doubled).toBe(6);
-    expect(incrementOut.data.incremented).toBe(7);
+    expect(doubleOut.unwrap().doubled).toBe(6);
+    expect(incrementOut.unwrap().incremented).toBe(7);
   });
 
   it("invokes the finalizer exactly once with the original source and outputs", async () => {
@@ -190,27 +191,27 @@ describe("Playlist", () => {
         if (outputs.double === null) {
           return { current: 0 };
         }
-        if (!outputs.double.success) {
+        if (outputs.double.isErr()) {
           throw new Error("Expected the doubling task to succeed");
         }
-        return { current: outputs.double.data.doubled };
+        return { current: outputs.double.unwrap().doubled };
       });
 
     // Run with positive value - doubling should happen
     const resultPositive = await playlist.run({ start: 5 });
     expect(resultPositive.double).not.toBeNull();
-    if (resultPositive.double !== null && resultPositive.double.success) {
-      expect(resultPositive.double.data.doubled).toBe(10);
+    if (resultPositive.double !== null && resultPositive.double.isOk()) {
+      expect(resultPositive.double.unwrap().doubled).toBe(10);
     }
-    if (resultPositive.increment !== null && resultPositive.increment.success) {
-      expect(resultPositive.increment.data.incremented).toBe(11);
+    if (resultPositive.increment !== null && resultPositive.increment.isOk()) {
+      expect(resultPositive.increment.unwrap().incremented).toBe(11);
     }
 
     // Run with negative value - doubling should be skipped
     const resultNegative = await playlist.run({ start: -1 });
     expect(resultNegative.double).toBeNull();
-    if (resultNegative.increment !== null && resultNegative.increment.success) {
-      expect(resultNegative.increment.data.incremented).toBe(1); // 0 + 1
+    if (resultNegative.increment !== null && resultNegative.increment.isOk()) {
+      expect(resultNegative.increment.unwrap().incremented).toBe(1); // 0 + 1
     }
   });
 
@@ -224,7 +225,7 @@ describe("Playlist", () => {
     const result = await playlist.run({ start: 1 }, { retryDelay: 100 });
     
     expect(flakyAttempts).toBe(3); // Initial + 2 retries
-    expect(result.flaky?.success).toBe(true);
+    expect(result.flaky?.isOk()).toBe(true);
     expect(sleepSpy).toHaveBeenCalledTimes(2);
     expect(sleepSpy).toHaveBeenCalledWith(100);
   });
@@ -288,7 +289,7 @@ describe("Playlist", () => {
     
     const result = await playlist.run({ start: 1 }); // No options = defaults
     
-    expect(result.flaky?.success).toBe(true);
+    expect(result.flaky?.isOk()).toBe(true);
     expect(sleepSpy).toHaveBeenCalledWith(1000); // Default delay
   });
 

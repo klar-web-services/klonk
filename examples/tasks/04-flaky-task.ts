@@ -10,7 +10,8 @@
  * - Temporary service unavailability
  */
 
-import { Task, Railroad } from "../../src";
+import { Task } from "../../src";
+import { Result } from "@fkws/klonk-result";
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -52,24 +53,24 @@ export class FlakyTask<TIdent extends string> extends Task<FlakyInput, FlakyOutp
         return true;
     }
 
-    async run(input: FlakyInput): Promise<Railroad<FlakyOutput>> {
+    async run(input: FlakyInput): Promise<Result<FlakyOutput>> {
         this.attempts++;
         
         if (this.attempts <= input.maxFailures) {
             console.log(`[FlakyTask] Attempt ${this.attempts} failed (will retry automatically)`);
-            return {
+            return new Result({
                 success: false,
                 error: new Error(`Simulated failure ${this.attempts}/${input.maxFailures}`)
-            };
+            });
         }
         
         console.log(`[FlakyTask] Attempt ${this.attempts} succeeded!`);
         const result = { attempts: this.attempts };
         
-        return { 
+        return new Result({ 
             success: true, 
             data: result 
-        };
+        });
     }
 }
 
@@ -87,7 +88,7 @@ async function main() {
     console.log("--- Simulating 3 failures before success ---\n");
     
     // Manually simulate what Klonk's retry system does
-    let result: Railroad<FlakyOutput>;
+    let result: Result<FlakyOutput>;
     let attemptCount = 0;
     const maxRetries = 5;
     
@@ -95,15 +96,15 @@ async function main() {
         attemptCount++;
         result = await flakyTask.run({ maxFailures: 3 });
         
-        if (!result.success && attemptCount < maxRetries) {
+        if (result.isErr() && attemptCount < maxRetries) {
             console.log(`  → Retrying in 100ms...\n`);
             await new Promise(resolve => setTimeout(resolve, 100));
         }
-    } while (!result.success && attemptCount < maxRetries);
+    } while (result.isErr() && attemptCount < maxRetries);
 
     console.log("\n--- Result ---");
-    if (result.success) {
-        console.log(`Success after ${result.data.attempts} attempts`);
+    if (result.isOk()) {
+        console.log(`Success after ${result.attempts} attempts`);
     } else {
         console.log(`Failed after ${attemptCount} retries:`, result.error.message);
     }
@@ -113,8 +114,8 @@ async function main() {
     flakyTask.reset();
     
     const quickResult = await flakyTask.run({ maxFailures: 0 });
-    if (quickResult.success) {
-        console.log(`Succeeded immediately (${quickResult.data.attempts} attempt)`);
+    if (quickResult.isOk()) {
+        console.log(`Succeeded immediately (${quickResult.attempts} attempt)`);
     }
 }
 

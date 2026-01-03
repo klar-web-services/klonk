@@ -10,8 +10,9 @@
  * - Setting a playlist with .setPlaylist()
  * - Starting and processing events
  */
+import { Result } from "@fkws/klonk-result";
 
-import { Workflow, isOk } from "../../src";
+import { Workflow } from "../../src";
 import { WebhookTrigger } from "../triggers/01-simple-trigger";
 import { FetchTask } from "../tasks/01-simple-task";
 import { LogTask } from "../tasks/03-error-handling";
@@ -62,8 +63,8 @@ const myWorkflow = Workflow.create()
         // Log the result
         .addTask(new LogTask("logResult"))
         .input((event, outputs) => {
-            const fetchOk = outputs.fetch && isOk(outputs.fetch);
-            const statusCode = outputs.fetch && isOk(outputs.fetch) ? outputs.fetch.data.statusCode : 0;
+            const fetchOk = outputs.fetch && outputs.fetch.isOk();
+            const statusCode = outputs.fetch && outputs.fetch.isOk() ? outputs.fetch.statusCode : 0;
             
             return {
                 action: "webhook_processed",
@@ -119,9 +120,9 @@ async function main() {
             console.log("\n[Workflow Callback] Event processed!");
             console.log("  Trigger:", source.triggerIdent);
             console.log("  Endpoint:", source.data.endpoint);
-            const logResult = outputs.logResult as { success: boolean; data?: { logId: string } } | null;
-            console.log("  Log result:", logResult && logResult.success && logResult.data
-                ? logResult.data.logId 
+            const logResult = outputs.logResult as Result<{ logId: string }> | null;
+            console.log("  Log result:", logResult && logResult.isOk()
+                ? logResult.logId 
                 : "failed");
         }
     });

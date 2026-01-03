@@ -10,7 +10,7 @@
  * - Conditional workflows based on input flags
  */
 
-import { Playlist, isOk } from "../../src";
+import { Playlist } from "../../src";
 import { LogTask, NotifyTask } from "../tasks/03-error-handling";
 
 // =============================================================================
@@ -51,8 +51,8 @@ const conditionalPlaylist = new Playlist<{}, ProcessSource>()
         }
         
         // Access previous output for the notification
-        const logId = outputs.logStart && isOk(outputs.logStart) 
-            ? outputs.logStart.data.logId 
+        const logId = outputs.logStart && outputs.logStart.isOk() 
+            ? outputs.logStart.logId 
             : "unknown";
         
         return {
@@ -68,7 +68,7 @@ const conditionalPlaylist = new Playlist<{}, ProcessSource>()
         const wasSkipped = outputs.notify === null;
         
         // If not skipped, check if it succeeded
-        const notificationSent = !wasSkipped && outputs.notify && isOk(outputs.notify);
+        const notificationSent = !wasSkipped && outputs.notify && outputs.notify.isOk();
         
         return {
             action: "process_complete",
@@ -77,7 +77,7 @@ const conditionalPlaylist = new Playlist<{}, ProcessSource>()
                 notificationSkipped: wasSkipped,
                 notificationSent: notificationSent,
                 // Access notification time if it was sent
-                notifiedAt: outputs.notify && isOk(outputs.notify) ? outputs.notify.data.sentAt : null
+                notifiedAt: outputs.notify && outputs.notify.isOk() ? outputs.notify.sentAt : null
             }
         };
     });
@@ -104,7 +104,7 @@ const skipOnErrorPlaylist = new Playlist<{}, FetchSource>()
     // Skip notification if logging failed AND fallback is disabled
     .addTask(new NotifyTask("notify"))
     .input((source, outputs) => {
-        const logSucceeded = outputs.log && isOk(outputs.log);
+        const logSucceeded = outputs.log && outputs.log.isOk();
         
         // Skip if log failed and we don't want fallback
         if (!logSucceeded && !source.fallbackOnError) {
@@ -139,8 +139,8 @@ async function main() {
     
     console.log("\nOutputs:");
     console.log("  notify:", result1.notify === null ? "SKIPPED" : "sent");
-    if (result1.notify && isOk(result1.notify)) {
-        console.log("  sentAt:", result1.notify.data.sentAt);
+    if (result1.notify && result1.notify.isOk()) {
+        console.log("  sentAt:", result1.notify.sentAt);
     }
 
     // --- Run with notification disabled ---
@@ -159,7 +159,7 @@ async function main() {
     console.log("When a task is skipped, its output is `null`, not `undefined`.");
     console.log("This is similar to Rust's Option<T>:");
     console.log("  • null = task was skipped (Option::None)");
-    console.log("  • Railroad<T> = task ran (Option::Some(Result<T, E>))");
+    console.log("  • Result<T> = task ran (Option::Some(Result<T, E>))");
 }
 
 main().catch(console.error);

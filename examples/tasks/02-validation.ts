@@ -6,7 +6,8 @@
  * if the input is invalid, preventing execution.
  */
 
-import { Task, Railroad } from "../../src";
+import { Task } from "../../src";
+import { Result } from "@fkws/klonk-result";
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -53,17 +54,17 @@ export class ParseHtmlTask<TIdent extends string> extends Task<ParseInput, Parse
         return true;
     }
 
-    async run(input: ParseInput): Promise<Railroad<ParseOutput>> {
+    async run(input: ParseInput): Promise<Result<ParseOutput>> {
         console.log(`[ParseHtmlTask] Parsing HTML (${input.html.length} chars)`);
         
         // Simulated parsing - in reality you'd use a DOM parser
-        return {
+        return new Result({
             success: true,
             data: { 
                 title: "Example Page", 
                 links: ["/about", "/contact"] 
             }
-        };
+        });
     }
 }
 
@@ -86,9 +87,9 @@ async function main() {
     
     if (isValid) {
         const result = await parseTask.run(validInput);
-        if (result.success) {
-            console.log("Parsed title:", result.data.title);
-            console.log("Found links:", result.data.links);
+        if (result.isOk()) {
+            console.log("Parsed title:", result.title);
+            console.log("Found links:", result.links);
         }
     }
 

@@ -7,7 +7,8 @@
  * - Returning errors from tasks (success: false)
  */
 
-import { Task, Railroad } from "../../src";
+import { Task } from "../../src";
+import { Result } from "@fkws/klonk-result";
 
 // =============================================================================
 // NOTIFY TASK - Enum Input Types
@@ -36,20 +37,20 @@ export class NotifyTask<TIdent extends string> extends Task<NotifyInput, NotifyO
         return input.message.length > 0;
     }
 
-    async run(input: NotifyInput): Promise<Railroad<NotifyOutput>> {
+    async run(input: NotifyInput): Promise<Result<NotifyOutput>> {
         // Example of returning an error
         if (input.level === "error" && input.message.includes("CRITICAL")) {
-            return {
+            return new Result({
                 success: false,
                 error: new Error("Critical errors require escalation - cannot send directly")
-            };
+            });
         }
 
         console.log(`[NotifyTask] [${input.level.toUpperCase()}] ${input.message}`);
-        return {
+        return new Result({
             success: true,
             data: { sentAt: new Date() }
-        };
+        });
     }
 }
 
@@ -81,15 +82,15 @@ export class LogTask<TIdent extends string> extends Task<LogInput, LogOutput, TI
         return true;
     }
 
-    async run(input: LogInput): Promise<Railroad<LogOutput>> {
+    async run(input: LogInput): Promise<Result<LogOutput>> {
         const logId = `log_${Date.now()}`;
         console.log(`[LogTask] Logged "${input.action}" with id ${logId}`);
         console.log(`[LogTask] Metadata:`, JSON.stringify(input.metadata, null, 2));
         
-        return {
+        return new Result({
             success: true,
             data: { logId }
-        };
+        });
     }
 }
 
@@ -112,14 +113,14 @@ async function main() {
         message: "User logged in", 
         level: "info" 
     });
-    console.log("Info notification sent:", infoResult.success);
+    console.log("Info notification sent:", infoResult.isOk());
 
     // Warning level
     const warnResult = await notifyTask.run({ 
         message: "High memory usage", 
         level: "warn" 
     });
-    console.log("Warn notification sent:", warnResult.success);
+    console.log("Warn notification sent:", warnResult.isOk());
 
     // Error level that triggers a failure
     console.log("\n--- Triggering an error response ---\n");
@@ -128,7 +129,7 @@ async function main() {
         level: "error" 
     });
     
-    if (!errorResult.success) {
+    if (errorResult.isErr()) {
         console.log("Task returned error:", errorResult.error.message);
     }
 
